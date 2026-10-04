@@ -22,8 +22,13 @@ import {
   Play,
   VolumeX,
   FastForward,
-  Edit3
+  Edit3,
+  Sliders,
+  Pause
 } from 'lucide-react';
+import { useSpeechPlayer } from '../utils/useSpeechPlayer';
+import { AudioSettingsModal } from './AudioSettingsModal';
+import { NoArabicVoiceModal } from './NoArabicVoiceModal';
 
 interface ListenScreenProps {
   onSuccess: (data: Extraction) => void;
@@ -52,8 +57,9 @@ export const ListenScreen: React.FC<ListenScreenProps> = ({ onSuccess, onBack })
   const [copiedTranscript, setCopiedTranscript] = useState(false);
   const [fullTargetText, setFullTargetText] = useState('');
 
-  // Audio speech synthesis state for previewing read-aloud
-  const [isSpeakingAudio, setIsSpeakingAudio] = useState(false);
+  // Audio speech synthesis controller using Saudi-first TTS engine
+  const speech = useSpeechPlayer();
+  const [showSettingsModal, setShowSettingsModal] = useState(false);
 
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const audioChunksRef = useRef<Blob[]>([]);
@@ -320,6 +326,7 @@ export const ListenScreen: React.FC<ListenScreenProps> = ({ onSuccess, onBack })
 
   const handleClearTranscript = () => {
     if (typewriterTimerRef.current) clearInterval(typewriterTimerRef.current);
+    speech.stop();
     setTranscribedText('');
     setTextInput('');
     setFullTargetText('');
@@ -330,24 +337,6 @@ export const ListenScreen: React.FC<ListenScreenProps> = ({ onSuccess, onBack })
       setAudioUrl(null);
     }
     setAudioBlob(null);
-  };
-
-  const handleToggleSpeak = () => {
-    if (!('speechSynthesis' in window) || !transcribedText) return;
-
-    if (isSpeakingAudio) {
-      window.speechSynthesis.cancel();
-      setIsSpeakingAudio(false);
-    } else {
-      window.speechSynthesis.cancel();
-      const utterance = new SpeechSynthesisUtterance(transcribedText);
-      utterance.lang = 'ar-SA';
-      utterance.rate = 0.95;
-      utterance.onend = () => setIsSpeakingAudio(false);
-      utterance.onerror = () => setIsSpeakingAudio(false);
-      window.speechSynthesis.speak(utterance);
-      setIsSpeakingAudio(true);
-    }
   };
 
   const formatTime = (secs: number) => {
@@ -616,19 +605,68 @@ export const ListenScreen: React.FC<ListenScreenProps> = ({ onSuccess, onBack })
                     </button>
                   )}
 
-                  {/* Read aloud toggle */}
+                  {/* Enhanced Saudi-first Arabic TTS Audio Controls */}
                   {'speechSynthesis' in window && !isTypingEffect && (
-                    <button
-                      onClick={handleToggleSpeak}
-                      className={`p-1.5 rounded-lg border text-xs cursor-pointer transition-colors ${
-                        isSpeakingAudio
-                          ? 'bg-emerald-100 border-emerald-300 text-emerald-900'
-                          : 'bg-white border-slate-200 text-slate-600 hover:bg-slate-50'
-                      }`}
-                      title={isSpeakingAudio ? 'إيقاف القراءة' : 'استماع للنص'}
-                    >
-                      {isSpeakingAudio ? <VolumeX className="w-4 h-4" /> : <Volume2 className="w-4 h-4" />}
-                    </button>
+                    <div className="flex items-center gap-1 bg-slate-50 p-1 rounded-lg border border-slate-200">
+                      <button
+                        onClick={() => {
+                          if (speech.isPlaying) {
+                            speech.stop();
+                          } else {
+                            speech.play(transcribedText);
+                          }
+                        }}
+                        className={`flex items-center gap-1.5 px-2.5 py-1 rounded-md text-xs font-semibold cursor-pointer transition-all ${
+                          speech.isPlaying
+                            ? 'bg-emerald-700 text-white shadow-xs'
+                            : 'bg-white text-slate-700 hover:bg-slate-100 border border-slate-200/80 shadow-2xs'
+                        }`}
+                        title={speech.isPlaying ? 'إيقاف الاستماع' : 'استماع للنص (صوت عربي سعودي)'}
+                      >
+                        {speech.isPlaying ? (
+                          <>
+                            <VolumeX className="w-3.5 h-3.5" />
+                            <span>إيقاف</span>
+                          </>
+                        ) : (
+                          <>
+                            <Volume2 className="w-3.5 h-3.5 text-emerald-700" />
+                            <span>استماع للنص</span>
+                          </>
+                        )}
+                      </button>
+
+                      {/* Pause / Resume if playing */}
+                      {speech.isPlaying && (
+                        <button
+                          onClick={speech.isPaused ? speech.resume : speech.pause}
+                          className="p-1 text-slate-600 hover:text-slate-900 bg-white hover:bg-slate-100 rounded-md border border-slate-200/80 cursor-pointer transition-colors"
+                          title={speech.isPaused ? 'استئناف القراءة' : 'إيقاف مؤقت'}
+                        >
+                          {speech.isPaused ? (
+                            <Play className="w-3.5 h-3.5 text-emerald-700" />
+                          ) : (
+                            <Pause className="w-3.5 h-3.5 text-amber-700" />
+                          )}
+                        </button>
+                      )}
+
+                      {/* Progress counter if multi-sentence */}
+                      {speech.isPlaying && speech.totalChunks > 1 && (
+                        <span className="text-[10px] font-bold text-emerald-900 bg-emerald-100/90 px-1.5 py-0.5 rounded-md">
+                          {speech.currentChunk + 1} / {speech.totalChunks}
+                        </span>
+                      )}
+
+                      {/* Audio Settings Trigger */}
+                      <button
+                        onClick={() => setShowSettingsModal(true)}
+                        className="p-1 rounded-md text-slate-500 hover:text-slate-800 bg-white hover:bg-slate-100 border border-slate-200/80 cursor-pointer transition-colors"
+                        title="إعدادات الصوت والسرعة"
+                      >
+                        <Sliders className="w-3.5 h-3.5" />
+                      </button>
+                    </div>
                   )}
 
                   {/* Copy button */}
@@ -781,6 +819,29 @@ export const ListenScreen: React.FC<ListenScreenProps> = ({ onSuccess, onBack })
           </div>
         </div>
       )}
+
+      {/* Audio Settings Modal */}
+      <AudioSettingsModal
+        isOpen={showSettingsModal}
+        onClose={() => setShowSettingsModal(false)}
+        availableVoices={speech.availableVoices}
+        selectedVoice={speech.selectedVoice}
+        onSelectVoice={speech.setVoice}
+        rate={speech.rate}
+        onChangeRate={speech.changeRate}
+        onOpenHelp={() => speech.setShowNoVoiceModal(true)}
+      />
+
+      {/* No Arabic Voice Helper Modal */}
+      <NoArabicVoiceModal
+        isOpen={speech.showNoVoiceModal}
+        onClose={() => speech.setShowNoVoiceModal(false)}
+        onRefresh={() => {
+          if (typeof window !== 'undefined' && 'speechSynthesis' in window) {
+            window.speechSynthesis.getVoices();
+          }
+        }}
+      />
     </div>
   );
 };

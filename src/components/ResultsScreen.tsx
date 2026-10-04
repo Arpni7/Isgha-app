@@ -20,8 +20,15 @@ import {
   Baby,
   HeartHandshake,
   ListOrdered,
-  AlertCircle
+  AlertCircle,
+  VolumeX,
+  Pause,
+  Play,
+  Sliders
 } from 'lucide-react';
+import { useSpeechPlayer } from '../utils/useSpeechPlayer';
+import { AudioSettingsModal } from './AudioSettingsModal';
+import { NoArabicVoiceModal } from './NoArabicVoiceModal';
 
 interface ResultsScreenProps {
   data: Extraction;
@@ -88,6 +95,39 @@ export const ResultsScreen: React.FC<ResultsScreenProps> = ({ data: initialData,
     day: 'numeric'
   });
 
+  // Arabic TTS audio controller
+  const speech = useSpeechPlayer();
+  const [showSettingsModal, setShowSettingsModal] = useState(false);
+  const [activeSpeechTarget, setActiveSpeechTarget] = useState<'summary' | 'transform' | null>(null);
+
+  React.useEffect(() => {
+    return () => {
+      speech.stop();
+    };
+  }, []);
+
+  const toggleSpeakSummary = () => {
+    if (speech.isPlaying && activeSpeechTarget === 'summary') {
+      speech.stop();
+      setActiveSpeechTarget(null);
+    } else {
+      speech.stop();
+      setActiveSpeechTarget('summary');
+      speech.play(`${data.title}. ${data.summary}`);
+    }
+  };
+
+  const toggleSpeakTransform = () => {
+    if (speech.isPlaying && activeSpeechTarget === 'transform') {
+      speech.stop();
+      setActiveSpeechTarget(null);
+    } else {
+      speech.stop();
+      setActiveSpeechTarget('transform');
+      speech.play(activeTransformation?.content || '');
+    }
+  };
+
   return (
     <div className="max-w-4xl mx-auto space-y-6 py-4">
       {/* Top action row */}
@@ -151,10 +191,50 @@ export const ResultsScreen: React.FC<ResultsScreenProps> = ({ data: initialData,
 
         {/* Section: Summary */}
         <div className="p-4 bg-emerald-50/60 rounded-xl border border-emerald-200/60 space-y-2">
-          <h3 className="text-xs font-bold text-emerald-900 uppercase tracking-wider flex items-center gap-1.5">
-            <Quote className="w-3.5 h-3.5 text-emerald-700" />
-            <span>{t('summary')}</span>
-          </h3>
+          <div className="flex items-center justify-between">
+            <h3 className="text-xs font-bold text-emerald-900 uppercase tracking-wider flex items-center gap-1.5">
+              <Quote className="w-3.5 h-3.5 text-emerald-700" />
+              <span>{t('summary')}</span>
+            </h3>
+
+            {/* Read-aloud with Saudi Arabic voice */}
+            {'speechSynthesis' in window && (
+              <div className="flex items-center gap-1">
+                <button
+                  onClick={toggleSpeakSummary}
+                  className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-md text-xs font-semibold cursor-pointer transition-colors ${
+                    speech.isPlaying && activeSpeechTarget === 'summary'
+                      ? 'bg-emerald-700 text-white shadow-xs'
+                      : 'bg-white hover:bg-emerald-100 text-emerald-900 border border-emerald-200/80 shadow-2xs'
+                  }`}
+                  title={
+                    speech.isPlaying && activeSpeechTarget === 'summary'
+                      ? 'إيقاف الاستماع'
+                      : 'استماع للملخص بصوت سعودي'
+                  }
+                >
+                  {speech.isPlaying && activeSpeechTarget === 'summary' ? (
+                    <>
+                      <VolumeX className="w-3.5 h-3.5" />
+                      <span>إيقاف</span>
+                    </>
+                  ) : (
+                    <>
+                      <Volume2 className="w-3.5 h-3.5 text-emerald-700" />
+                      <span>استماع</span>
+                    </>
+                  )}
+                </button>
+                <button
+                  onClick={() => setShowSettingsModal(true)}
+                  className="p-1 text-emerald-800 hover:text-emerald-950 bg-white hover:bg-emerald-100 rounded-md border border-emerald-200/80 cursor-pointer transition-colors"
+                  title="إعدادات الصوت والسرعة"
+                >
+                  <Sliders className="w-3.5 h-3.5" />
+                </button>
+              </div>
+            )}
+          </div>
           <p className="text-sm leading-relaxed text-slate-800 font-medium">
             {data.summary}
           </p>
@@ -255,6 +335,29 @@ export const ResultsScreen: React.FC<ResultsScreenProps> = ({ data: initialData,
               </div>
             </div>
             <div className="flex items-center gap-2">
+              {'speechSynthesis' in window && (
+                <button
+                  onClick={toggleSpeakTransform}
+                  className={`flex items-center gap-1 text-xs px-2.5 py-1 rounded-lg transition-colors font-medium cursor-pointer ${
+                    speech.isPlaying && activeSpeechTarget === 'transform'
+                      ? 'bg-emerald-700 text-white shadow-xs'
+                      : 'bg-slate-100 hover:bg-slate-200 text-slate-700'
+                  }`}
+                  title="استماع للصياغة بصوت سعودي"
+                >
+                  {speech.isPlaying && activeSpeechTarget === 'transform' ? (
+                    <>
+                      <VolumeX className="w-3.5 h-3.5" />
+                      <span>إيقاف</span>
+                    </>
+                  ) : (
+                    <>
+                      <Volume2 className="w-3.5 h-3.5 text-emerald-700" />
+                      <span>استماع</span>
+                    </>
+                  )}
+                </button>
+              )}
               <button
                 onClick={() => {
                   navigator.clipboard.writeText(activeTransformation.content);
@@ -267,7 +370,10 @@ export const ResultsScreen: React.FC<ResultsScreenProps> = ({ data: initialData,
                 <span>{transformCopied ? t('copied') : 'نسخ الصياغة'}</span>
               </button>
               <button
-                onClick={() => setActiveTransformation(null)}
+                onClick={() => {
+                  if (activeSpeechTarget === 'transform') speech.stop();
+                  setActiveTransformation(null);
+                }}
                 className="text-xs text-slate-400 hover:text-slate-600 cursor-pointer px-2 py-1"
               >
                 إغلاق
@@ -461,6 +567,29 @@ export const ResultsScreen: React.FC<ResultsScreenProps> = ({ data: initialData,
           </div>
         </div>
       )}
+
+      {/* Audio Settings Modal */}
+      <AudioSettingsModal
+        isOpen={showSettingsModal}
+        onClose={() => setShowSettingsModal(false)}
+        availableVoices={speech.availableVoices}
+        selectedVoice={speech.selectedVoice}
+        onSelectVoice={speech.setVoice}
+        rate={speech.rate}
+        onChangeRate={speech.changeRate}
+        onOpenHelp={() => speech.setShowNoVoiceModal(true)}
+      />
+
+      {/* No Arabic Voice Helper Modal */}
+      <NoArabicVoiceModal
+        isOpen={speech.showNoVoiceModal}
+        onClose={() => speech.setShowNoVoiceModal(false)}
+        onRefresh={() => {
+          if (typeof window !== 'undefined' && 'speechSynthesis' in window) {
+            window.speechSynthesis.getVoices();
+          }
+        }}
+      />
     </div>
   );
 };
