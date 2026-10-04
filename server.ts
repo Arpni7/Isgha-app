@@ -136,6 +136,14 @@ export interface Extraction {
   transformations?: Record<string, string>;
 }
 
+export interface FatwaFollowup {
+  question: string;
+  answer: string;
+  response_type?: 'answer' | 'clarification' | 'referral';
+  clarification_question?: string;
+  referral_note?: string;
+}
+
 export interface FatwaRecord {
   id: string;
   question: string;
@@ -145,7 +153,7 @@ export interface FatwaRecord {
   scholar_references: ScholarRef[];
   created_at: string;
   language?: string;
-  followups?: Array<{ question: string; answer: string }>;
+  followups?: FatwaFollowup[];
   transformations?: Record<string, string>;
   skepticChat?: Array<{
     sender: 'skeptic' | 'user';
@@ -974,22 +982,51 @@ app.post('/api/fatwa/followup', async (req: Request, res: Response) => {
       return res.status(404).json({ error: 'Fatwa not found' });
     }
 
-    const prompt = `Context: The user previously asked:
-"${parent.question}"
-And received this scholarly answer:
-"${parent.answer}"
+    const previousThread = (parent.followups || [])
+      .map((f, idx) => `[Round ${idx + 1}] User Followup: ${f.question}\nScholar Answer (${f.response_type || 'answer'}): ${f.answer}`)
+      .join('\n\n');
 
-Now the user has this follow-up question:
+    const prompt = `You are a scrupulous Islamic scholarly assistant and verifier of Fiqh evidence.
+You strictly adhere to the ethical boundaries of Islamic Ifta' and citation: you strictly distinguish between retrieving documented scholarly rulings ("البحث بالمصادر الموثقة") and issuing customized personal rulings ("الإفتاء الشخصي في النوازل والظروف الخاصة").
+
+Background Context:
+Original Question: "${parent.question}"
+Primary Scholarly Ruling: "${parent.answer}"
+${previousThread ? `Previous Follow-up History in this session:\n${previousThread}\n` : ''}
+
+New Follow-up Message from User:
 "${question}"
+Target Language: ${language}
 
-Provide a dedicated, supportive scholarly follow-up response addressing this specific nuance, with supporting evidence or scholar points.
+CRITICAL JURY PROTOCOL (Clarify, Refer, or Ground):
+You MUST classify this follow-up into EXACTLY ONE of the following three categories and handle it accordingly:
 
-Respond in JSON:
+1. "clarification":
+- WHEN TO USE: The user's message introduces or implies personal circumstances, special intent, family/marital dynamics, financial contracts, medical/health situations, coercion/forgetfulness, or unique conditions that could alter the fiqh ruling, BUT key essential details are missing or ambiguous.
+- ACTION: DO NOT issue a definitive ruling. Instead, write a polite, concise clarification asking ONE specific, focused clarifying question to obtain the exact missing detail.
+- Set "response_type": "clarification".
+- Set "clarification_question" to the specific single question asked.
+
+2. "referral":
+- WHEN TO USE: The details have already been provided, or the situation is a deeply personalized dilemma, legal dispute, complex divorce/marital controversy, contested inheritance, criminal matter, or nuanced circumstance that falls outside explicit canonical texts and fatwa consensus.
+- ACTION: DO NOT make up or innovate a ruling or personal ijtihad from yourself (لا تجتهد برأي من عندك مطلقاً، ولا تقدم حكماً بديلاً). Explicitly and respectfully state that their specific case requires direct consultation with an official accredited Fatwa authority or trusted live scholar (e.g. دار الإفتاء الرسمية أو هيئة كبار العلماء أو محكمة شرعية) to examine documents and hear all parties.
+- Set "response_type": "referral".
+- Set "referral_note" to the referral statement.
+
+3. "answer":
+- WHEN TO USE: ONLY when the verified scholarly sources, Quranic verses, authentic hadiths, and recognized classical/contemporary scholars (e.g. Ibn Baz, Ibn Uthaymeen, An-Nawawi, the four Sunni schools) clearly and definitively cover this general inquiry without needing private customized adjudication.
+- ACTION: Provide a direct, reassuring, and clear explanation grounded exclusively in verified sources.
+- Set "response_type": "answer".
+
+Return strictly valid JSON:
 {
-  "answer": "Clear follow-up answer addressing the nuance",
-  "verses": [{"arabic": "...", "reference": "..."}],
-  "hadiths": [{"text": "...", "source": "...", "narrator": "..."}],
-  "scholar_references": [{"scholar": "...", "quote": "...", "source": "..."}]
+  "response_type": "answer" | "clarification" | "referral",
+  "answer": "The comprehensive response text (including the clarification or referral if applicable) formatted cleanly with paragraphs.",
+  "clarification_question": "The single clarifying question if response_type is clarification, else empty",
+  "referral_note": "The referral message to official fatwa councils if response_type is referral, else empty",
+  "verses": [{"arabic": "Quranic verse", "reference": "Surah:Ayah"}],
+  "hadiths": [{"text": "Hadith text", "source": "Source book", "narrator": "Narrator", "grade": "Grade"}],
+  "scholar_references": [{"scholar": "Scholar", "quote": "Quote", "source": "Source"}]
 }`;
 
     const rawText = await generateWithFallback({
@@ -999,16 +1036,29 @@ Respond in JSON:
     });
 
     const parsed = safeParseJSON(rawText, {});
-    if (!parent.followups) parent.followups = [];
-    parent.followups.push({
+    const respType: 'answer' | 'clarification' | 'referral' =
+      parsed.response_type === 'clarification' || parsed.response_type === 'referral'
+        ? parsed.response_type
+        : 'answer';
+
+    const followupEntry: FatwaFollowup = {
       question,
-      answer: parsed.answer || ''
-    });
+      answer: parsed.answer || '',
+      response_type: respType,
+      clarification_question: parsed.clarification_question || undefined,
+      referral_note: parsed.referral_note || undefined
+    };
+
+    if (!parent.followups) parent.followups = [];
+    parent.followups.push(followupEntry);
     saveDB(db);
 
     res.json({
       question,
       answer: parsed.answer || '',
+      response_type: respType,
+      clarification_question: parsed.clarification_question || '',
+      referral_note: parsed.referral_note || '',
       verses: parsed.verses || [],
       hadiths: parsed.hadiths || [],
       scholar_references: parsed.scholar_references || []

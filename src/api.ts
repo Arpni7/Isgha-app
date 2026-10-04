@@ -136,7 +136,16 @@ export async function fatwaFollowup(
   fatwa_id: string,
   question: string,
   language = 'ar'
-): Promise<{ question: string; answer: string; verses?: any[]; hadiths?: any[]; scholar_references?: any[] }> {
+): Promise<{
+  question: string;
+  answer: string;
+  response_type?: 'answer' | 'clarification' | 'referral';
+  clarification_question?: string;
+  referral_note?: string;
+  verses?: any[];
+  hadiths?: any[];
+  scholar_references?: any[];
+}> {
   const res = await fetch(`${API_BASE}/fatwa/followup`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },

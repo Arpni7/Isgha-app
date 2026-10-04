@@ -30,6 +30,14 @@ export interface Extraction {
   transformations?: Record<string, string>;
 }
 
+export interface FatwaFollowup {
+  question: string;
+  answer: string;
+  response_type?: 'answer' | 'clarification' | 'referral';
+  clarification_question?: string;
+  referral_note?: string;
+}
+
 export interface FatwaRecord {
   id: string;
   question: string;
@@ -39,7 +47,7 @@ export interface FatwaRecord {
   scholar_references: ScholarRef[];
   created_at: string;
   language?: string;
-  followups?: Array<{ question: string; answer: string }>;
+  followups?: FatwaFollowup[];
   transformations?: Record<string, string>;
   skepticChat?: Array<{
     sender: 'skeptic' | 'user';

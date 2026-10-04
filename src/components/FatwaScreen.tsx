@@ -17,7 +17,9 @@ import {
   HeartHandshake,
   ListOrdered,
   MessageSquare,
-  AlertCircle
+  AlertCircle,
+  Scale,
+  HelpCircle
 } from 'lucide-react';
 
 interface FatwaScreenProps {
@@ -103,7 +105,16 @@ export const FatwaScreen: React.FC<FatwaScreenProps> = ({
         if (!prev) return null;
         return {
           ...prev,
-          followups: [...(prev.followups || []), { question: followupText, answer: res.answer }]
+          followups: [
+            ...(prev.followups || []),
+            {
+              question: followupText,
+              answer: res.answer,
+              response_type: res.response_type,
+              clarification_question: res.clarification_question,
+              referral_note: res.referral_note
+            }
+          ]
         };
       });
       setFollowupText('');
@@ -227,6 +238,18 @@ export const FatwaScreen: React.FC<FatwaScreenProps> = ({
         <div className="space-y-6">
           {/* Main Answer Card */}
           <div className="bg-white rounded-2xl border border-slate-200/90 p-6 sm:p-8 shadow-xs space-y-6">
+            {/* Prominent Trust Badge (Requirement 2) */}
+            <div className="flex items-center gap-2 px-3.5 py-1.5 rounded-lg bg-emerald-50 border border-emerald-300 text-emerald-900 w-fit shadow-2xs">
+              <span className="flex h-2 w-2 relative">
+                <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
+                <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-600"></span>
+              </span>
+              <ShieldCheck className="w-4 h-4 text-emerald-700 shrink-0" />
+              <span className="text-xs font-bold tracking-wide">
+                {t('verified_source_badge')}
+              </span>
+            </div>
+
             <div className="space-y-2 pb-4 border-b border-slate-100">
               <span className="text-xs font-semibold text-emerald-800 uppercase tracking-wider">
                 استفتاء شرعي
@@ -323,9 +346,16 @@ export const FatwaScreen: React.FC<FatwaScreenProps> = ({
               </div>
             )}
 
-            {/* Disclaimer */}
-            <div className="p-3 bg-amber-50/70 rounded-lg border border-amber-200/60 text-xs text-amber-900/90">
-              {t('disclaimer_fatwa')}
+            {/* Disclaimer & Scholarly Boundary Notice */}
+            <div className="space-y-2.5">
+              <div className="p-3 bg-amber-50/70 rounded-lg border border-amber-200/60 text-xs text-amber-900/90 flex items-start gap-2">
+                <span className="shrink-0 mt-0.5">⚠️</span>
+                <span>{t('disclaimer_fatwa')}</span>
+              </div>
+              <div className="p-3 bg-slate-50 rounded-lg border border-slate-200/80 text-xs text-slate-700 flex items-start gap-2">
+                <Scale className="w-4 h-4 text-emerald-800 shrink-0 mt-0.5" />
+                <span className="leading-relaxed">{t('boundary_notice')}</span>
+              </div>
             </div>
 
             {/* Action Bar (Adaptations & Simulator Jump) */}
@@ -404,16 +434,77 @@ export const FatwaScreen: React.FC<FatwaScreenProps> = ({
             {/* Previous followups */}
             {currentFatwa.followups && currentFatwa.followups.length > 0 && (
               <div className="space-y-4 pb-2">
-                {currentFatwa.followups.map((f, i) => (
-                  <div key={i} className="space-y-2 p-4 bg-slate-50 rounded-xl border border-slate-200/60">
-                    <span className="text-xs font-bold text-emerald-950 block">س: {f.question}</span>
-                    <p className="text-xs sm:text-sm text-slate-700 leading-relaxed whitespace-pre-line">
-                      ج: {f.answer}
-                    </p>
-                  </div>
-                ))}
+                {currentFatwa.followups.map((f, i) => {
+                  const isClarification = f.response_type === 'clarification';
+                  const isReferral = f.response_type === 'referral';
+
+                  return (
+                    <div
+                      key={i}
+                      className={`space-y-2.5 p-4 rounded-xl border ${
+                        isClarification
+                          ? 'bg-amber-50/60 border-amber-200/90 shadow-2xs'
+                          : isReferral
+                          ? 'bg-emerald-50/50 border-2 border-emerald-600/30 shadow-2xs'
+                          : 'bg-slate-50 rounded-xl border-slate-200/60'
+                      }`}
+                    >
+                      <div className="flex flex-wrap items-center justify-between gap-2 pb-1.5 border-b border-slate-200/40">
+                        <span className="text-xs font-bold text-slate-900 block">
+                          س: {f.question}
+                        </span>
+                        {isClarification ? (
+                          <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-md bg-amber-100/90 text-amber-950 text-[10px] font-bold">
+                            <HelpCircle className="w-3 h-3 text-amber-700" />
+                            <span>{t('badge_clarification')}</span>
+                          </span>
+                        ) : isReferral ? (
+                          <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-md bg-emerald-100 text-emerald-950 text-[10px] font-bold">
+                            <Scale className="w-3 h-3 text-emerald-800" />
+                            <span>{t('badge_referral')}</span>
+                          </span>
+                        ) : (
+                          <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-md bg-slate-200/70 text-slate-700 text-[10px] font-semibold">
+                            <CheckCircle2 className="w-3 h-3 text-emerald-700" />
+                            <span>{t('badge_verified_answer')}</span>
+                          </span>
+                        )}
+                      </div>
+
+                      <p
+                        className={`text-xs sm:text-sm leading-relaxed whitespace-pre-line ${
+                          isClarification
+                            ? 'text-amber-950 font-medium'
+                            : isReferral
+                            ? 'text-slate-800'
+                            : 'text-slate-700'
+                        }`}
+                      >
+                        ج: {f.answer}
+                      </p>
+
+                      {isReferral && (
+                        <div className="pt-2 border-t border-emerald-200/60 text-[11px] text-emerald-900 font-semibold flex items-center gap-1.5">
+                          <ShieldCheck className="w-3.5 h-3.5 text-emerald-700 shrink-0" />
+                          <span>{t('official_referral_title')}</span>
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
               </div>
             )}
+
+            {/* Clarification prompt hint if last followup is clarification */}
+            {currentFatwa.followups &&
+              currentFatwa.followups.length > 0 &&
+              currentFatwa.followups[currentFatwa.followups.length - 1].response_type ===
+                'clarification' && (
+                <div className="p-3 rounded-xl bg-amber-50 border border-amber-300/80 text-xs text-amber-950 font-medium flex items-center gap-2">
+                  <HelpCircle className="w-4 h-4 text-amber-700 shrink-0" />
+                  <span>{t('clarification_prompt_hint')}</span>
+                </div>
+              )}
 
             {/* Followup input */}
             <div className="flex gap-2">
