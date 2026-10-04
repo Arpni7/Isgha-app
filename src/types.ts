@@ -27,6 +27,7 @@ export interface Extraction {
   created_at: string;
   original_text?: string;
   language?: string;
+  transformations?: Record<string, string>;
 }
 
 export interface FatwaRecord {

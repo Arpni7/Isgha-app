@@ -133,6 +133,7 @@ export interface Extraction {
   created_at: string;
   original_text?: string;
   language?: string;
+  transformations?: Record<string, string>;
 }
 
 export interface FatwaRecord {
@@ -477,12 +478,11 @@ app.delete('/api/history/fatwa/:id', (req: Request, res: Response) => {
   res.json({ success: true });
 });
 
-// Download Project Source as ZIP
 app.get('/api/download-zip', (req: Request, res: Response) => {
   const zipPath = path.resolve(__dirname, 'public', 'isgha-project.zip');
   if (fs.existsSync(zipPath)) {
     res.setHeader('Content-Type', 'application/zip');
-    res.setHeader('Content-Disposition', 'attachment; filename="isgha-project.zip"');
+    res.setHeader('Content-Disposition', 'attachment; filename="isgha-app-latest.zip"');
     return res.sendFile(zipPath);
   }
   res.status(404).send('ZIP file not found');
@@ -787,6 +787,93 @@ Respond strictly with valid JSON with the exact same structure translated into $
   } catch (err: any) {
     console.error('Error in /api/listen/translate:', err);
     res.status(503).json({ error: 'تعذرت الترجمة نظراً لضغط الخدمة، يرجى المحاولة بعد لحظات.' });
+  }
+});
+
+// 5.5 Listen Content Transform (Child, Non-Muslim/New Muslim, Practical Steps)
+app.post('/api/listen/transform', async (req: Request, res: Response) => {
+  try {
+    const { extraction_id, mode, language = 'ar' } = req.body;
+    if (!extraction_id || !mode) {
+      return res.status(400).json({ error: 'extraction_id and mode are required' });
+    }
+
+    const parent = db.extractions.find((e) => e.id === extraction_id);
+    if (!parent) {
+      return res.status(404).json({ error: 'Extraction not found' });
+    }
+
+    if (parent.transformations && parent.transformations[`${mode}_${language}`]) {
+      const titles: Record<string, string> = {
+        child: language === 'ar' ? '👶 شرح مبسّط للأطفال والناشئة' : '👶 Simplified Explanation for Children',
+        newmuslim: language === 'ar' ? '🌍 تبسيط لغير المسلم والمسلم الجديد' : '🌍 Introduction for Non-Muslims & New Converts',
+        practical: language === 'ar' ? '📋 خطوات وتطبيقات عملية يومية' : '📋 Practical Action Plan & Daily Steps',
+      };
+      return res.json({
+        mode,
+        title: titles[mode] || (mode === 'child' ? 'شرح للأطفال' : mode === 'newmuslim' ? 'تبسيط لغير المسلم' : 'خطوات عملية'),
+        content: parent.transformations[`${mode}_${language}`]
+      });
+    }
+
+    let modeInstruction = '';
+    if (mode === 'child') {
+      modeInstruction = `Adapt and explain this Islamic lecture, lesson, or speech specifically for children and youth (ages 7-12).
+- Use a warm, gentle, enthusiastic storytelling style with rhetorical friendly questions.
+- Use fun, relatable real-life examples (family kindness, school manners, caring for animals, helping friends).
+- Explain WHY Allah loves these good deeds and how practicing them brings light and happiness to our hearts.
+- Avoid heavy theological jargon or complex jurisprudential terminology completely.
+- Formulate it into 3-4 inspiring lessons with easy moral takeaways.`;
+    } else if (mode === 'newmuslim') {
+      modeInstruction = `Adapt and explain this Islamic lecture or topic for someone who is either a non-Muslim exploring Islamic teachings or a newly practicing / new convert Muslim.
+- Welcome them with heartfelt warmth, utmost respect, and peaceful clarity.
+- Clarify the sublime spiritual wisdom, peace of mind, and universal human morals behind these teachings.
+- Demystify any Islamic concepts or terms in plain, intuitive everyday language.
+- Emphasize mercy, justice, love of goodness, and the direct loving connection with the Creator.
+- Frame Islam as a way of life that purifies the soul and fosters compassion for all human beings.`;
+    } else {
+      modeInstruction = `Transform the core benefits and takeaways of this Islamic lecture into a practical, actionable daily life guide.
+- Provide a concrete checklist of daily implementation steps.
+- Explain practical scenarios: how to live these lessons at home, at work or school, and in personal habits.
+- Add practical motivational tips to maintain consistency and overcome procrastination.`;
+    }
+
+    const prompt = `Title: ${parent.title}
+Summary: ${parent.summary}
+Extracted Benefits:
+${parent.benefits.map((b, i) => `${i + 1}. ${b}`).join('\n')}
+${parent.hadiths && parent.hadiths.length > 0 ? `Hadiths Referenced:\n${parent.hadiths.map((h) => `- ${h.text} (${h.source})`).join('\n')}` : ''}
+
+Task: ${modeInstruction}
+Language: ${language}
+
+Return strictly valid JSON:
+{
+  "mode": "${mode}",
+  "title": "A warm, engaging title matching the mode in ${language === 'ar' ? 'Arabic' : 'the requested language'}",
+  "content": "The full adapted text, formatted cleanly with clear paragraphs and bullet points."
+}`;
+
+    const rawText = await generateWithFallback({
+      contents: [{ role: 'user', parts: [{ text: prompt }] }],
+      responseMimeType: 'application/json',
+      temperature: 0.3
+    });
+
+    const parsed = safeParseJSON(rawText, {
+      mode,
+      title: mode === 'child' ? 'شرح مبسّط للأطفال والناشئة' : mode === 'newmuslim' ? 'تبسيط لغير المسلم والمسلم الجديد' : 'خطوات وتطبيقات عملية',
+      content: parent.summary
+    });
+
+    if (!parent.transformations) parent.transformations = {};
+    parent.transformations[`${mode}_${language}`] = parsed.content;
+    saveDB(db);
+
+    res.json(parsed);
+  } catch (err: any) {
+    console.error('Error in /api/listen/transform:', err);
+    res.status(503).json({ error: 'الخدمة تشهد ضغطاً مؤقتاً، يرجى إعادة المحاولة بعد لحظات.' });
   }
 });
 

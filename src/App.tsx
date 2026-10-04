@@ -9,7 +9,7 @@ import { SkepticScreen } from './components/SkepticScreen';
 import { HistoryScreen } from './components/HistoryScreen';
 import { LanguageModal } from './components/LanguageModal';
 import { Extraction } from './types';
-import { Shield, BookOpen, Heart, Download } from 'lucide-react';
+import { Shield, BookOpen, Heart } from 'lucide-react';
 
 function AppContent() {
   const { t } = useLang();
@@ -134,16 +134,6 @@ function AppContent() {
           </p>
 
           <div className="flex items-center gap-4 text-slate-500">
-            <a
-              href="/api/download-zip"
-              download="isgha-project.zip"
-              className="hover:text-emerald-800 transition-colors flex items-center gap-1 font-medium text-emerald-900"
-              title="تحميل كود المشروع بصيغة ZIP"
-            >
-              <Download className="w-3.5 h-3.5" />
-              <span>تحميل المشروع (ZIP)</span>
-            </a>
-            <span>·</span>
             <button
               onClick={() => setLangModalOpen(true)}
               className="hover:text-emerald-800 transition-colors cursor-pointer"

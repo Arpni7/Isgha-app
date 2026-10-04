@@ -105,6 +105,19 @@ export async function translateExtraction(id: string, targetLanguage: string): P
   return handleResponse(res);
 }
 
+export async function listenTransform(
+  extraction_id: string,
+  mode: 'child' | 'newmuslim' | 'practical',
+  language = 'ar'
+): Promise<{ mode: string; title: string; content: string }> {
+  const res = await fetch(`${API_BASE}/listen/transform`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ extraction_id, mode, language }),
+  });
+  return handleResponse(res);
+}
+
 export async function getExtraction(id: string): Promise<Extraction> {
   const res = await fetch(`${API_BASE}/listen/${id}`);
   return handleResponse(res);

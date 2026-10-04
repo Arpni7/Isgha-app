@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { useLang } from '../i18n/LanguageContext';
 import { Extraction } from '../types';
-import { translateExtraction } from '../api';
+import { translateExtraction, listenTransform } from '../api';
 import {
   ArrowLeft,
   ArrowRight,
@@ -16,7 +16,11 @@ import {
   Quote,
   CheckCircle2,
   Sparkles,
-  FileText
+  FileText,
+  Baby,
+  HeartHandshake,
+  ListOrdered,
+  AlertCircle
 } from 'lucide-react';
 
 interface ResultsScreenProps {
@@ -31,6 +35,10 @@ export const ResultsScreen: React.FC<ResultsScreenProps> = ({ data: initialData,
   const [isTranslating, setIsTranslating] = useState(false);
   const [copied, setCopied] = useState(false);
   const [activeTab, setActiveTab] = useState<'all' | 'benefits' | 'verses' | 'hadiths' | 'original'>('all');
+  const [transformLoading, setTransformLoading] = useState<'child' | 'newmuslim' | 'practical' | null>(null);
+  const [activeTransformation, setActiveTransformation] = useState<{ mode: string; title: string; content: string } | null>(null);
+  const [transformCopied, setTransformCopied] = useState(false);
+  const [transformError, setTransformError] = useState('');
 
   const languages = [
     { code: 'ar', label: 'العربية' },
@@ -59,6 +67,19 @@ export const ResultsScreen: React.FC<ResultsScreenProps> = ({ data: initialData,
     navigator.clipboard.writeText(textToCopy);
     setCopied(true);
     setTimeout(() => setCopied(false), 2500);
+  };
+
+  const handleTransform = async (mode: 'child' | 'newmuslim' | 'practical') => {
+    setTransformLoading(mode);
+    setTransformError('');
+    try {
+      const result = await listenTransform(data.id, mode, data.language || 'ar');
+      setActiveTransformation(result);
+    } catch (err: any) {
+      setTransformError(err.message || 'تعذر إعداد الصياغة، يرجى المحاولة لاحقاً');
+    } finally {
+      setTransformLoading(null);
+    }
   };
 
   const formattedDate = new Date(data.created_at).toLocaleDateString(isRTL ? 'ar-SA' : 'en-US', {
@@ -139,17 +160,126 @@ export const ResultsScreen: React.FC<ResultsScreenProps> = ({ data: initialData,
           </p>
         </div>
 
-        {/* Action: Ask Fatwa on this topic */}
-        <div className="pt-2 flex justify-end">
+        {/* Action Bar (Adaptations & Fatwa Jump) */}
+        <div className="pt-4 border-t border-slate-100 flex flex-wrap items-center gap-2">
+          <span className="text-xs font-semibold text-slate-500 w-full sm:w-auto">
+            خيارات وتطبيقات:
+          </span>
+
+          <button
+            onClick={() => handleTransform('child')}
+            disabled={transformLoading !== null}
+            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg border text-xs font-medium cursor-pointer transition-colors shadow-2xs ${
+              activeTransformation?.mode === 'child'
+                ? 'bg-blue-50 border-blue-300 text-blue-900 font-bold'
+                : 'border-slate-200 bg-white hover:bg-slate-50 text-slate-700'
+            }`}
+          >
+            <Baby className="w-3.5 h-3.5 text-blue-600" />
+            <span>{transformLoading === 'child' ? t('tr_loading') : t('act_child')}</span>
+          </button>
+
+          <button
+            onClick={() => handleTransform('newmuslim')}
+            disabled={transformLoading !== null}
+            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg border text-xs font-medium cursor-pointer transition-colors shadow-2xs ${
+              activeTransformation?.mode === 'newmuslim'
+                ? 'bg-emerald-50 border-emerald-300 text-emerald-900 font-bold'
+                : 'border-slate-200 bg-white hover:bg-slate-50 text-slate-700'
+            }`}
+          >
+            <HeartHandshake className="w-3.5 h-3.5 text-emerald-700" />
+            <span>{transformLoading === 'newmuslim' ? t('tr_loading') : t('act_newmuslim')}</span>
+          </button>
+
+          <button
+            onClick={() => handleTransform('practical')}
+            disabled={transformLoading !== null}
+            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg border text-xs font-medium cursor-pointer transition-colors shadow-2xs ${
+              activeTransformation?.mode === 'practical'
+                ? 'bg-amber-50 border-amber-300 text-amber-900 font-bold'
+                : 'border-slate-200 bg-white hover:bg-slate-50 text-slate-700'
+            }`}
+          >
+            <ListOrdered className="w-3.5 h-3.5 text-amber-600" />
+            <span>{transformLoading === 'practical' ? t('tr_loading') : t('act_practical')}</span>
+          </button>
+
           <button
             onClick={() => onAskAboutThis(data.title)}
-            className="inline-flex items-center gap-2 px-4 py-2 bg-emerald-800 hover:bg-emerald-900 text-white text-xs font-bold rounded-lg transition-colors cursor-pointer shadow-xs"
+            className="inline-flex items-center gap-1.5 px-3.5 py-1.5 bg-emerald-800 hover:bg-emerald-900 text-white text-xs font-bold rounded-lg transition-colors cursor-pointer shadow-xs ms-auto"
           >
-            <BookOpen className="w-4 h-4 text-amber-300" />
+            <BookOpen className="w-3.5 h-3.5 text-amber-300" />
             <span>{t('ask_about_this')}</span>
           </button>
         </div>
       </div>
+
+      {/* Transform Error Notice */}
+      {transformError && (
+        <div className="p-3 bg-red-50 border border-red-200 rounded-xl text-xs text-red-700 flex items-center gap-2">
+          <AlertCircle className="w-4 h-4 text-red-500 shrink-0" />
+          <span>{transformError}</span>
+        </div>
+      )}
+
+      {/* Active Transformation Card (Child, Non-Muslim, Practical Steps) */}
+      {activeTransformation && (
+        <div className="bg-white rounded-2xl border-2 border-emerald-600/30 p-6 sm:p-8 shadow-sm space-y-4 animate-in fade-in duration-300">
+          <div className="flex items-center justify-between pb-3 border-b border-slate-100">
+            <div className="flex items-center gap-2.5">
+              {activeTransformation.mode === 'child' ? (
+                <div className="w-8 h-8 rounded-full bg-blue-100 flex items-center justify-center text-blue-700">
+                  <Baby className="w-4 h-4" />
+                </div>
+              ) : activeTransformation.mode === 'newmuslim' ? (
+                <div className="w-8 h-8 rounded-full bg-emerald-100 flex items-center justify-center text-emerald-800">
+                  <HeartHandshake className="w-4 h-4" />
+                </div>
+              ) : (
+                <div className="w-8 h-8 rounded-full bg-amber-100 flex items-center justify-center text-amber-800">
+                  <ListOrdered className="w-4 h-4" />
+                </div>
+              )}
+              <div>
+                <h3 className="text-base font-bold text-slate-900">
+                  {activeTransformation.title}
+                </h3>
+                <span className="text-[11px] text-slate-400">
+                  {activeTransformation.mode === 'child'
+                    ? t('tr_child_title')
+                    : activeTransformation.mode === 'newmuslim'
+                    ? t('tr_newmuslim_title')
+                    : t('tr_practical_title')}
+                </span>
+              </div>
+            </div>
+            <div className="flex items-center gap-2">
+              <button
+                onClick={() => {
+                  navigator.clipboard.writeText(activeTransformation.content);
+                  setTransformCopied(true);
+                  setTimeout(() => setTransformCopied(false), 2000);
+                }}
+                className="flex items-center gap-1 text-xs text-slate-600 hover:text-slate-900 px-2.5 py-1 rounded-lg bg-slate-100 hover:bg-slate-200 transition-colors font-medium cursor-pointer"
+              >
+                {transformCopied ? <Check className="w-3.5 h-3.5 text-emerald-600" /> : <Copy className="w-3.5 h-3.5" />}
+                <span>{transformCopied ? t('copied') : 'نسخ الصياغة'}</span>
+              </button>
+              <button
+                onClick={() => setActiveTransformation(null)}
+                className="text-xs text-slate-400 hover:text-slate-600 cursor-pointer px-2 py-1"
+              >
+                إغلاق
+              </button>
+            </div>
+          </div>
+
+          <div className="text-sm sm:text-base leading-relaxed text-slate-800 font-sans whitespace-pre-wrap selection:bg-emerald-100 bg-slate-50/80 p-5 rounded-xl border border-slate-200/70">
+            {activeTransformation.content}
+          </div>
+        </div>
+      )}
 
       {/* Filter Tabs */}
       <div className="flex items-center gap-1 p-1 bg-slate-100 rounded-lg max-w-md">

@@ -1,6 +1,6 @@
 import React from 'react';
 import { useLang } from '../i18n/LanguageContext';
-import { Globe, BookOpen, Volume2, HelpCircle, ShieldCheck, History as HistoryIcon, Download } from 'lucide-react';
+import { Globe, BookOpen, Volume2, HelpCircle, ShieldCheck, History as HistoryIcon } from 'lucide-react';
 
 interface HeaderProps {
   currentTab: 'home' | 'listen' | 'fatwa' | 'skeptic' | 'history';
@@ -94,19 +94,8 @@ export const Header: React.FC<HeaderProps> = ({ currentTab, onSelectTab, onOpenL
           </button>
         </nav>
 
-        {/* Zone 3: 1-2 primary actions (Download ZIP & Language Switcher) */}
+        {/* Zone 3: 1-2 primary actions (Language Switcher) */}
         <div className="flex items-center gap-2">
-          <a
-            href="/api/download-zip"
-            download="isgha-project.zip"
-            className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold text-emerald-950 bg-emerald-50 hover:bg-emerald-100/90 border border-emerald-200/90 rounded-lg transition-colors cursor-pointer shadow-2xs"
-            title="تحميل كود المشروع بصيغة ZIP"
-          >
-            <Download className="w-3.5 h-3.5 text-emerald-700" />
-            <span className="hidden sm:inline">تحميل كود المشروع (ZIP)</span>
-            <span className="sm:hidden">ZIP</span>
-          </a>
-
           <button
             onClick={onOpenLangModal}
             className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-slate-700 bg-slate-100 hover:bg-slate-200/80 rounded-lg transition-colors cursor-pointer border border-slate-200"
