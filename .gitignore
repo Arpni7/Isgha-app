@@ -1,0 +1,22 @@
+# Dependencies
+node_modules/
+
+# Production & Build outputs
+dist/
+build/
+.vite/
+
+# Environment Variables
+.env
+.env.local
+.env.*.local
+.env*
+!.env.example
+
+# Logs and Temp
+*.log
+*.tmp
+.DS_Store
+Thumbs.db
+coverage/
+

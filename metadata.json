@@ -1,0 +1,10 @@
+{
+  "name": "إصغاء",
+  "description": "منصة ذكية لاستخلاص الفوائد والأحاديث والآيات من المحاضرات، والاستفتاء الشرعي المدعوم بالأدلة، ومحاكي الشبهات.",
+  "requestFramePermissions": [
+    "microphone"
+  ],
+  "majorCapabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
+}

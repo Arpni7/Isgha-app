@@ -1,0 +1,21 @@
+@import "tailwindcss";
+
+@layer base {
+  :root {
+    --font-sans: 'Cairo', 'Plus Jakarta Sans', system-ui, -apple-system, sans-serif;
+    --font-quran: 'Amiri', serif;
+  }
+
+  body {
+    font-family: var(--font-sans);
+  }
+}
+
+.font-quran {
+  font-family: 'Amiri', serif;
+}
+
+.font-ui {
+  font-family: 'Cairo', 'Plus Jakarta Sans', system-ui, sans-serif;
+}
+
