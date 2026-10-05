@@ -100,16 +100,16 @@ export const AudioSettingsModal: React.FC<AudioSettingsModalProps> = ({
             </label>
             <div className="grid grid-cols-3 gap-2">
               {[
-                { label: 'بطيء (0.8x)', value: 0.8 },
-                { label: 'معتدل (1.0x)', value: 1.0 },
-                { label: 'سريع (1.25x)', value: 1.25 }
+                { label: 'متأنٍ (0.85x)', value: 0.85 },
+                { label: 'معتدل (0.90x)', value: 0.90 },
+                { label: 'قياسي (1.0x)', value: 1.0 }
               ].map((opt) => (
                 <button
                   key={opt.value}
                   type="button"
                   onClick={() => onChangeRate(opt.value)}
                   className={`p-2.5 rounded-xl border text-xs font-semibold cursor-pointer transition-colors text-center ${
-                    Math.abs(rate - opt.value) < 0.05
+                    Math.abs(rate - opt.value) < 0.03
                       ? 'bg-emerald-800 border-emerald-900 text-white shadow-xs'
                       : 'bg-white border-slate-200 hover:bg-slate-50 text-slate-700'
                   }`}
@@ -119,7 +119,7 @@ export const AudioSettingsModal: React.FC<AudioSettingsModalProps> = ({
               ))}
             </div>
             <p className="text-[11px] text-slate-500">
-              * السرعة المعتدلة (1.0x) تضمن وضوح مخارج الحروف والوقفات الطبيعية.
+              * السرعة المعتدلة (بين 0.85 و1.0) تضمن سلامة مخارج الحروف والوقفات الطبيعية دون استعجال.
             </p>
           </div>
 

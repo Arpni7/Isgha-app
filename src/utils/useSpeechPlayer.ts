@@ -6,7 +6,8 @@ import {
   splitTextIntoChunks,
   saveVoicePreference,
   getSavedRatePreference,
-  saveRatePreference
+  saveRatePreference,
+  waitForVoicesLoaded
 } from './textToSpeech';
 
 export interface UseSpeechPlayerReturn {
@@ -20,12 +21,13 @@ export interface UseSpeechPlayerReturn {
   hasArabicVoice: boolean;
   showNoVoiceModal: boolean;
   setShowNoVoiceModal: (show: boolean) => void;
-  play: (text: string) => void;
+  play: (text: string) => Promise<void>;
   pause: () => void;
   resume: () => void;
   stop: () => void;
   setVoice: (voiceUri: string) => void;
   changeRate: (newRate: number) => void;
+  refreshVoices: () => Promise<void>;
 }
 
 export function useSpeechPlayer(): UseSpeechPlayerReturn {
@@ -38,42 +40,79 @@ export function useSpeechPlayer(): UseSpeechPlayerReturn {
   const [rate, setRateState] = useState<number>(getSavedRatePreference);
   const [showNoVoiceModal, setShowNoVoiceModal] = useState(false);
 
-  // Refs for tracking playback state across callbacks
+  // Queue and lifecycle refs
   const isPlayingRef = useRef(false);
-  const chunksRef = useRef<string[]>([]);
-  const chunkIndexRef = useRef(0);
-  const activeUtteranceRef = useRef<SpeechSynthesisUtterance | null>(null);
+  const queueRef = useRef<string[]>([]);
+  const queueIndexRef = useRef(0);
+  const selectedVoiceRef = useRef<SpeechSynthesisVoice | null>(null);
+  const rateRef = useRef<number>(rate);
 
-  // Sync available voices on mount and on voiceschanged event
-  const refreshVoices = useCallback(() => {
+  // Keep refs in sync with state
+  selectedVoiceRef.current = selectedVoice;
+  rateRef.current = rate;
+
+  // Asynchronous voice population waiting for voiceschanged
+  const populateVoices = useCallback(async () => {
     if (typeof window === 'undefined' || !('speechSynthesis' in window)) return;
-    const arabic = getArabicVoices();
+    const voices = await waitForVoicesLoaded();
+    const arabic = getArabicVoices(voices);
     setAvailableVoices(arabic);
     if (arabic.length > 0) {
       const best = selectBestVoice(arabic);
       setSelectedVoice(best);
+      selectedVoiceRef.current = best;
     }
   }, []);
 
   useEffect(() => {
-    refreshVoices();
+    let isMounted = true;
+
+    // Wait for voiceschanged before populating voices list!
+    waitForVoicesLoaded().then((voices) => {
+      if (!isMounted) return;
+      const arabic = getArabicVoices(voices);
+      setAvailableVoices(arabic);
+      if (arabic.length > 0) {
+        const best = selectBestVoice(arabic);
+        setSelectedVoice(best);
+        selectedVoiceRef.current = best;
+      }
+    });
+
+    const handleVoicesChanged = () => {
+      if (!isMounted) return;
+      const current = window.speechSynthesis.getVoices();
+      const arabic = getArabicVoices(current);
+      setAvailableVoices(arabic);
+      if (arabic.length > 0) {
+        setSelectedVoice((prev) => {
+          if (prev && arabic.some((v) => v.voice.voiceURI === prev.voiceURI)) {
+            return prev;
+          }
+          const best = selectBestVoice(arabic);
+          selectedVoiceRef.current = best;
+          return best;
+        });
+      }
+    };
+
     if (typeof window !== 'undefined' && 'speechSynthesis' in window) {
-      window.speechSynthesis.onvoiceschanged = refreshVoices;
-      // Some browsers delay voice population
-      const timer = setTimeout(refreshVoices, 300);
-      return () => {
-        clearTimeout(timer);
-        if (window.speechSynthesis) {
-          window.speechSynthesis.onvoiceschanged = null;
-        }
-      };
+      window.speechSynthesis.addEventListener('voiceschanged', handleVoicesChanged);
     }
-  }, [refreshVoices]);
+
+    return () => {
+      isMounted = false;
+      if (typeof window !== 'undefined' && 'speechSynthesis' in window) {
+        window.speechSynthesis.removeEventListener('voiceschanged', handleVoicesChanged);
+        window.speechSynthesis.cancel();
+      }
+    };
+  }, []);
 
   const stop = useCallback(() => {
     isPlayingRef.current = false;
-    chunkIndexRef.current = 0;
-    chunksRef.current = [];
+    queueIndexRef.current = 0;
+    queueRef.current = [];
     if (typeof window !== 'undefined' && 'speechSynthesis' in window) {
       window.speechSynthesis.cancel();
     }
@@ -83,10 +122,13 @@ export function useSpeechPlayer(): UseSpeechPlayerReturn {
     setTotalChunks(0);
   }, []);
 
-  const speakChunk = useCallback((index: number) => {
+  // Sequential queue processor: plays next item from queue
+  const playNextInQueue = useCallback(() => {
     if (!isPlayingRef.current) return;
-    const chunks = chunksRef.current;
-    if (index >= chunks.length) {
+    const queue = queueRef.current;
+    const index = queueIndexRef.current;
+
+    if (index >= queue.length) {
       stop();
       return;
     }
@@ -95,71 +137,86 @@ export function useSpeechPlayer(): UseSpeechPlayerReturn {
 
     window.speechSynthesis.cancel();
 
-    const chunkText = chunks[index];
+    const chunkText = queue[index];
     const utterance = new SpeechSynthesisUtterance(chunkText);
 
-    if (selectedVoice) {
-      utterance.voice = selectedVoice;
-      utterance.lang = selectedVoice.lang || 'ar-SA';
+    const voice = selectedVoiceRef.current;
+    if (voice) {
+      utterance.voice = voice;
+      utterance.lang = voice.lang || 'ar-SA';
     } else {
       utterance.lang = 'ar-SA';
     }
 
-    utterance.rate = rate;
+    // Rate between 0.85 and 1.0, pitch = 1
+    utterance.rate = rateRef.current;
     utterance.pitch = 1.0;
 
     utterance.onend = () => {
       if (isPlayingRef.current) {
-        chunkIndexRef.current = index + 1;
+        queueIndexRef.current = index + 1;
         setCurrentChunk(index + 1);
-        speakChunk(index + 1);
+        playNextInQueue();
       }
     };
 
     utterance.onerror = (e) => {
-      // If manually cancelled/interrupted, ignore error
+      // Ignore manual interruptions
       if (e.error === 'interrupted' || e.error === 'canceled') return;
-      console.warn('TTS utterance notice:', e.error);
+      console.warn('[TTS Queue Notice]', e.error);
       if (isPlayingRef.current) {
-        chunkIndexRef.current = index + 1;
+        queueIndexRef.current = index + 1;
         setCurrentChunk(index + 1);
-        speakChunk(index + 1);
+        playNextInQueue();
       }
     };
 
-    activeUtteranceRef.current = utterance;
     window.speechSynthesis.speak(utterance);
-  }, [selectedVoice, rate, stop]);
+  }, [stop]);
 
-  const play = useCallback((text: string) => {
+  const play = useCallback(async (text: string) => {
     if (typeof window === 'undefined' || !('speechSynthesis' in window)) {
       setShowNoVoiceModal(true);
       return;
     }
 
-    // Check if Arabic voices are available
-    const arabic = getArabicVoices();
-    if (arabic.length === 0) {
+    // Ensure voices are loaded first to prevent default fallback voice
+    let currentVoices = availableVoices;
+    if (currentVoices.length === 0) {
+      const loaded = await waitForVoicesLoaded(1000);
+      currentVoices = getArabicVoices(loaded);
+      setAvailableVoices(currentVoices);
+      if (currentVoices.length > 0) {
+        const best = selectBestVoice(currentVoices);
+        setSelectedVoice(best);
+        selectedVoiceRef.current = best;
+      }
+    }
+
+    // If still no Arabic voice on the device, stop and display Arabic notice
+    if (currentVoices.length === 0) {
+      console.warn('[TTS] Speech aborted: No Arabic voice available on this device.');
       setShowNoVoiceModal(true);
       return;
     }
 
+    // Split cleaned text into short sequential chunks (< 140 chars)
     const chunks = splitTextIntoChunks(text);
     if (chunks.length === 0) return;
 
-    // Reset previous
+    // Reset previous playback
     stop();
 
-    chunksRef.current = chunks;
-    chunkIndexRef.current = 0;
+    queueRef.current = chunks;
+    queueIndexRef.current = 0;
     isPlayingRef.current = true;
     setIsPlaying(true);
     setIsPaused(false);
     setCurrentChunk(0);
     setTotalChunks(chunks.length);
 
-    speakChunk(0);
-  }, [stop, speakChunk]);
+    playNextInQueue();
+  }, [availableVoices, stop, playNextInQueue]);
 
   const pause = useCallback(() => {
     if (typeof window !== 'undefined' && 'speechSynthesis' in window && isPlaying) {
@@ -179,21 +236,23 @@ export function useSpeechPlayer(): UseSpeechPlayerReturn {
     const found = availableVoices.find((v) => v.voice.voiceURI === voiceUri);
     if (found) {
       setSelectedVoice(found.voice);
+      selectedVoiceRef.current = found.voice;
       saveVoicePreference(voiceUri);
-      // If currently playing, restart chunk with new voice
       if (isPlayingRef.current) {
-        speakChunk(chunkIndexRef.current);
+        playNextInQueue();
       }
     }
-  }, [availableVoices, speakChunk]);
+  }, [availableVoices, playNextInQueue]);
 
   const changeRate = useCallback((newRate: number) => {
-    setRateState(newRate);
-    saveRatePreference(newRate);
+    const clamped = Math.max(0.80, Math.min(1.10, newRate));
+    setRateState(clamped);
+    rateRef.current = clamped;
+    saveRatePreference(clamped);
     if (isPlayingRef.current) {
-      speakChunk(chunkIndexRef.current);
+      playNextInQueue();
     }
-  }, [speakChunk]);
+  }, [playNextInQueue]);
 
   return {
     isPlaying,
@@ -211,6 +270,7 @@ export function useSpeechPlayer(): UseSpeechPlayerReturn {
     resume,
     stop,
     setVoice,
-    changeRate
+    changeRate,
+    refreshVoices: populateVoices
   };
 }

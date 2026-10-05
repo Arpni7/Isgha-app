@@ -47,6 +47,7 @@ export interface FatwaRecord {
   scholar_references: ScholarRef[];
   created_at: string;
   language?: string;
+  unavailable_in_knowledge_base?: boolean;
   followups?: FatwaFollowup[];
   transformations?: Record<string, string>;
   skepticChat?: Array<{
@@ -58,6 +59,14 @@ export interface FatwaRecord {
     missing_points?: string[];
     hint?: string;
   }>;
+}
+
+export interface ScholarQuestionRequest {
+  id: string;
+  question: string;
+  contact_info?: string;
+  status: 'قيد المراجعة' | 'تم الرد';
+  created_at: string;
 }
 
 export type SupportedLang = 'ar' | 'en' | 'fr' | 'ur' | 'tr' | 'id';

@@ -21,6 +21,8 @@ import {
   Scale,
   HelpCircle
 } from 'lucide-react';
+import { SendToScholarModal } from './SendToScholarModal';
+import { InternalScholarRequestsModal } from './InternalScholarRequestsModal';
 
 interface FatwaScreenProps {
   initialQuestion?: string;
@@ -43,6 +45,8 @@ export const FatwaScreen: React.FC<FatwaScreenProps> = ({
   const [transformLoading, setTransformLoading] = useState<string | null>(null);
   const [activeTransformation, setActiveTransformation] = useState<{ mode: string; title: string; content: string } | null>(null);
   const [error, setError] = useState('');
+  const [showScholarModal, setShowScholarModal] = useState(false);
+  const [showInternalRequestsModal, setShowInternalRequestsModal] = useState(false);
 
   const loadingSteps = [
     '🔍 جاري استحضار الأدلة وتخريج الأحاديث...',
@@ -155,7 +159,14 @@ export const FatwaScreen: React.FC<FatwaScreenProps> = ({
           <p className="text-xs text-slate-500 mt-0.5">{t('fatwa_sub')}</p>
         </div>
 
-        <div className="w-12" />
+        <button
+          onClick={() => setShowInternalRequestsModal(true)}
+          className="text-[11px] font-semibold text-slate-500 hover:text-emerald-800 transition-colors flex items-center gap-1.5 cursor-pointer bg-slate-50 hover:bg-emerald-50 px-2.5 py-1 rounded-lg border border-slate-200"
+          title="سجل المراجعة الداخلية لطلبات الاستفتاء"
+        >
+          <UserCheck className="w-3.5 h-3.5 text-emerald-700" />
+          <span className="hidden sm:inline">سجل الطلبات</span>
+        </button>
       </div>
 
       {/* Question Input Card */}
@@ -236,6 +247,27 @@ export const FatwaScreen: React.FC<FatwaScreenProps> = ({
       {/* Fatwa Content View */}
       {!loading && currentFatwa && (
         <div className="space-y-6">
+          {/* Prominent Banner when unavailable in Knowledge Base (Requirement 1 & 3) */}
+          {currentFatwa.unavailable_in_knowledge_base && (
+            <div className="bg-gradient-to-r from-amber-50 to-orange-50 rounded-2xl border-2 border-amber-300 p-6 shadow-sm space-y-3 text-right">
+              <div className="flex items-center gap-2.5 text-amber-900 font-bold text-sm sm:text-base">
+                <AlertCircle className="w-5 h-5 text-amber-700 shrink-0" />
+                <span>المسألة غير متوفرة في قاعدة المعرفة المعتمدة، أو تتطلب فتوى خاصة</span>
+              </div>
+              <p className="text-xs sm:text-sm text-amber-950/85 leading-relaxed">
+                التزاماً بضوابط الفتوى والجدول الصارم للمصادر المعتمدة، نلتزم بعدم الترجيح الآلي في المسائل المستجدة أو الحالات الخاصة. يمكنك إرسال سؤالك مباشرة لشيخ وباحث شرعي مختص لدراسته وموافادتك بالجواب:
+              </p>
+              <div className="pt-1">
+                <button
+                  onClick={() => setShowScholarModal(true)}
+                  className="inline-flex items-center gap-2 px-4 py-2.5 bg-emerald-800 hover:bg-emerald-900 text-white font-bold text-xs sm:text-sm rounded-xl shadow-xs transition-colors cursor-pointer"
+                >
+                  <span>📤 أرسل سؤالك لشيخ مختص</span>
+                </button>
+              </div>
+            </div>
+          )}
+
           {/* Main Answer Card */}
           <div className="bg-white rounded-2xl border border-slate-200/90 p-6 sm:p-8 shadow-xs space-y-6">
             {/* Prominent Trust Badge (Requirement 2) */}
@@ -392,6 +424,14 @@ export const FatwaScreen: React.FC<FatwaScreenProps> = ({
               </button>
 
               <button
+                onClick={() => setShowScholarModal(true)}
+                className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-emerald-300 bg-emerald-50/90 hover:bg-emerald-100 text-xs font-bold text-emerald-950 cursor-pointer transition-colors shadow-2xs"
+                title="إرسال السؤال إلى شيخ وباحث مختص"
+              >
+                <span>📤 أرسل سؤالك لشيخ مختص</span>
+              </button>
+
+              <button
                 onClick={() => onOpenSkepticWithTopic(currentFatwa.question, currentFatwa.id)}
                 className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-emerald-800 hover:bg-emerald-900 text-white text-xs font-bold cursor-pointer transition-colors shadow-xs ms-auto"
               >
@@ -484,9 +524,17 @@ export const FatwaScreen: React.FC<FatwaScreenProps> = ({
                       </p>
 
                       {isReferral && (
-                        <div className="pt-2 border-t border-emerald-200/60 text-[11px] text-emerald-900 font-semibold flex items-center gap-1.5">
-                          <ShieldCheck className="w-3.5 h-3.5 text-emerald-700 shrink-0" />
-                          <span>{t('official_referral_title')}</span>
+                        <div className="pt-2 border-t border-emerald-200/60 flex flex-wrap items-center justify-between gap-2">
+                          <div className="text-[11px] text-emerald-900 font-semibold flex items-center gap-1.5">
+                            <ShieldCheck className="w-3.5 h-3.5 text-emerald-700 shrink-0" />
+                            <span>{t('official_referral_title')}</span>
+                          </div>
+                          <button
+                            onClick={() => setShowScholarModal(true)}
+                            className="inline-flex items-center gap-1 px-2.5 py-1 bg-emerald-800 hover:bg-emerald-900 text-white text-[11px] font-bold rounded-lg shadow-2xs transition-colors cursor-pointer"
+                          >
+                            <span>📤 أرسل سؤالك لشيخ مختص</span>
+                          </button>
                         </div>
                       )}
                     </div>
@@ -530,6 +578,19 @@ export const FatwaScreen: React.FC<FatwaScreenProps> = ({
           </div>
         </div>
       )}
+
+      {/* Send to Scholar Modal */}
+      <SendToScholarModal
+        isOpen={showScholarModal}
+        onClose={() => setShowScholarModal(false)}
+        initialQuestion={currentFatwa ? currentFatwa.question : question}
+      />
+
+      {/* Internal Scholar Requests Review Modal */}
+      <InternalScholarRequestsModal
+        isOpen={showInternalRequestsModal}
+        onClose={() => setShowInternalRequestsModal(false)}
+      />
     </div>
   );
 };

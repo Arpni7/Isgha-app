@@ -155,6 +155,7 @@ export interface FatwaRecord {
   language?: string;
   followups?: FatwaFollowup[];
   transformations?: Record<string, string>;
+  unavailable_in_knowledge_base?: boolean;
   skepticChat?: Array<{
     sender: 'skeptic' | 'user';
     text: string;
@@ -166,12 +167,53 @@ export interface FatwaRecord {
   }>;
 }
 
+export interface ScholarQuestionRequest {
+  id: string;
+  question: string;
+  contact_info?: string;
+  status: 'قيد المراجعة' | 'تم الرد';
+  created_at: string;
+}
+
 const DB_FILE = '/tmp/isgha_db.json';
 
 interface Database {
   extractions: Extraction[];
   fatwas: FatwaRecord[];
+  scholarRequests: ScholarQuestionRequest[];
 }
+
+export const APPROVED_SOURCES_REGULATION = `
+جدول المصادر المعتمدة حصراً (Approved Authentic Islamic Sources Regulation):
+يجب الالتزام حصراً ودون استثناء بالمصادر التالية لكل مجال شرعي، ولا يُقبل أي مصدر خارج هذا الجدول:
+1. القرآن الكريم:
+   - المصدر المعتمد: النص والرسم العثماني من quranpedia.net، مع الترجمات المعتمدة لطبعة مجمع الملك فهد لطباعة المصحف الشريف.
+   - قاعدة الاستخدام: التأكد من موثوقية نقل الآيات القرآنية حرفياً بالرسم الصحيح مع تحديد اسم السورة ورقم الآية.
+2. التفسير:
+   - المصدر المعتمد: dorar.net/tafseer أو مصادر المفسرين من القرون الثلاثة الأولى (تفسير الطبري، البغوي، ابن كثير، القرطبي).
+   - قاعدة الاستخدام: يُستخدم لشرح معاني الآيات مع تمييز كلام المفسر بوضوح عن النص القرآني.
+3. الحديث النبوي الشريف:
+   - المصدر المعتمد: موسوعة الأحاديث dorar.net/hadith، أو الطبعات المعتمدة لكتب السنة (صحيح البخاري، صحيح مسلم، سنن أبي داود، الترمذي، النسائي، ابن ماجه)، أو المكتبة الشاملة shamela.ws.
+   - قاعدة الاستخدام: لا يُنسب أي حديث دون ذكر مصدره الدقيق وصحابي الرواية وحكم صحته المعتمد (صحيح، حسن، متفق عليه).
+4. العقيدة والتعريف بالإسلام:
+   - المصدر المعتمد: مصادر أهل السنة والجماعة من القرون الثلاثة الأولى أو موسوعة العقيدة dorar.net/aqeeda.
+   - قاعدة الاستخدام: الالتزام الصارم بما كان عليه المسلمون خصوصاً الصحابة رضي الله عنهم والتابعون وأئمة السلف.
+5. الفقه العام:
+   - المصدر المعتمد: كتب المذاهب الفقهية الأربعة المعتمدة (الحنفي، المالكي، الشافعي، الحنبلي)، أو موسوعة الفقه dorar.net/feqhia.
+   - قاعدة الاستخدام الحتمية: **لا تتحول إلى فتوى شخصية أو ترجيح آلي مستقل** — نقل أقوال المذاهب المعتمدة بنصها وعزوها، دون اجتهاد ذاتي أو إفتاء خاص.
+6. السيرة النبوية والتاريخ الإسلامي:
+   - المصدر المعتمد: مصادر السيرة والتاريخ من القرون الثلاثة الأولى (سيرة ابن إسحاق وابن هشام، تاريخ الطبري)، أو dorar.net/history.
+   - قاعدة الاستخدام: اعتماد الوقائع التاريخية الثابتة، وتوضيح درجة ما يحتاج احتراز.
+7. الشبهات والأسئلة المتكررة:
+   - المصدر المعتمد: مرجع dawa.center/file/7937.
+   - قاعدة الاستخدام: الاعتماد عليه كمصدر أساسي للحلول الحوارية وتفنيد الشبهات بالدليل العقلي والشرعي.
+8. الترجمة والمصطلحات الشرعية:
+   - المصدر المعتمد: موسوعة الجمهرة (islamic-content.com/dictionary)، ومستودع dawa.center.
+   - قاعدة الاستخدام: تقديم الترجمة المعتمدة للمصطلحات الشرعية الحساسة في كافة اللغات.
+
+قاعدة الامتناع المعتمدة:
+إن تعذّر إيجاد مصدر معتمد من هذا الجدول حصراً لأي مسألة، لا تستخدم مصدراً آخر مطلقاً — اعرض صراحة أن المسألة غير متوفرة في قاعدة المعرفة المعتمدة وتتطلب مراجعة شيخ مختص مباشرة.
+`;
 
 const initialDB: Database = {
   extractions: [
@@ -419,7 +461,8 @@ const initialDB: Database = {
       created_at: new Date(Date.now() - 3600000 * 10).toISOString(),
       language: 'ar'
     }
-  ]
+  ],
+  scholarRequests: []
 };
 
 function loadDB(): Database {
@@ -427,6 +470,9 @@ function loadDB(): Database {
     if (fs.existsSync(DB_FILE)) {
       const data = fs.readFileSync(DB_FILE, 'utf8');
       const loaded = JSON.parse(data);
+      if (!Array.isArray(loaded.scholarRequests)) {
+        loaded.scholarRequests = [];
+      }
       // Merge initial authentic fatwas if not present
       for (const initF of initialDB.fatwas) {
         if (!loaded.fatwas.some((f: FatwaRecord) => normalizeKey(f.question) === normalizeKey(initF.question))) {
@@ -525,6 +571,13 @@ app.post('/api/listen/text', async (req: Request, res: Response) => {
 Analyze the provided Islamic speech, sermon (khutbah), lecture transcript, or text carefully and concisely.
 Extract the core Islamic benefits, cited Quranic verses, cited Prophetic Hadiths with narrator and source, and scholarly references.
 
+${APPROVED_SOURCES_REGULATION}
+
+STRICT EXTRACTION RULES:
+1. Holy Quran: For any cited verse, provide the verified exact text and orthography conforming to quranpedia.net with exact Surah and Ayah reference.
+2. Prophetic Hadiths: Strictly verify against dorar.net/hadith, canonical editions of the Sunnah books, or shamela.ws. NEVER attribute a hadith without its canonical source, companion narrator, and authentic grade (صحيح, حسن, متفق عليه).
+3. If any narration or reference cannot be authenticated from this approved table, omit it rather than citing unverified text.
+
 Respond strictly in valid JSON format matching this schema:
 {
   "title": "A concise title in ${language === 'ar' ? 'Arabic' : 'the requested language'}",
@@ -544,7 +597,7 @@ Respond strictly in valid JSON format matching this schema:
       "grade": "Authenticity grade (صحيح, حسن, متفق عليه)"
     }
   ],
-  "sources": ["Scholarly references"]
+  "sources": ["Scholarly references from approved table"]
 }`;
 
     const rawText = await generateWithFallback({
@@ -902,16 +955,26 @@ app.post('/api/fatwa', async (req: Request, res: Response) => {
 
     const systemPrompt = `You are a reliable, authoritative Islamic jurisprudence (Fiqh) and Hadith scholar referencing Ahl al-Sunnah wal-Jama'ah methodologies.
 Answer the user's religious question with high scholarly integrity, clarity, and conciseness.
-Structure your answer clearly:
-1. Provide a direct, unambiguous ruling and concise explanation (2-3 short paragraphs).
-2. Cite 1-2 relevant Quranic verses with Surah name and Ayah number.
-3. Cite 1-2 authentic Prophetic Hadiths from canonical collections (Sahih al-Bukhari, Sahih Muslim, etc.) with narrator and grade.
-4. Cite 1-2 prominent trustworthy classical/contemporary scholars (e.g. Sheikh Ibn Baz, Sheikh Ibn Uthaymeen, Ibn al-Qayyim, An-Nawawi) with concise quotes.
+
+${APPROVED_SOURCES_REGULATION}
+
+CRITICAL RULES FOR FATWA MODE:
+1. Ground every answer strictly in the approved table:
+   - Quranic verses: exact text and reference from quranpedia.net.
+   - Tafseer: dorar.net/tafseer or classical commentators from the first three centuries.
+   - Hadith: canonical Sunnah books or dorar.net/hadith or shamela.ws with narrator and authenticity grade (صحيح، حسن، متفق عليه).
+   - Fiqh: four Sunni madhhabs or dorar.net/feqhia.
+2. ABSOLUTE CONSTRAINT: DO NOT formulate an independent personal fatwa or speculative machine ijtihad (لا تتحول إلى فتوى شخصية أو ترجيح آلي مستقل). Quote and cite established school positions.
+3. ABSTENTION PROTOCOL: If the inquiry is outside the explicit texts and consensus of the approved table, or is an intricate personal dispute, criminal/marital litigation requiring live testimony:
+   - Set "unavailable_in_knowledge_base": true
+   - Set "answer": "هذه المسألة غير متوفرة في قاعدة المعرفة المعتمدة (المستندة حصراً لمصادر: quranpedia.net، dorar.net، كتب السنة، والمذاهب الأربعة)، أو تتطلب تفصيلاً خاصاً لا يستقل به البحث الآلي. يُرجى توجيه السؤال مباشرة لشيخ مختص عبر الزر المتاح أدناه."
+   - Otherwise, set "unavailable_in_knowledge_base": false.
 
 Respond strictly in valid JSON:
 {
   "question": "The refined question",
   "answer": "Concise, clear scholarly answer with paragraphs",
+  "unavailable_in_knowledge_base": false,
   "verses": [
     {
       "arabic": "Quranic verse in Arabic text",
@@ -948,6 +1011,9 @@ Respond strictly in valid JSON:
     });
 
     const parsed = safeParseJSON(rawText, {});
+    const isUnavailable = parsed.unavailable_in_knowledge_base === true ||
+      (typeof parsed.answer === 'string' && parsed.answer.includes('غير متوفرة في قاعدة المعرفة'));
+
     const newFatwa: FatwaRecord = {
       id: 'fatwa-' + Date.now() + '-' + Math.random().toString(36).substring(2, 6),
       question,
@@ -955,6 +1021,7 @@ Respond strictly in valid JSON:
       verses: Array.isArray(parsed.verses) ? parsed.verses : [],
       hadiths: Array.isArray(parsed.hadiths) ? parsed.hadiths : [],
       scholar_references: Array.isArray(parsed.scholar_references) ? parsed.scholar_references : [],
+      unavailable_in_knowledge_base: isUnavailable,
       created_at: new Date().toISOString(),
       language
     };
@@ -1145,15 +1212,23 @@ app.post('/api/fatwa/skeptic', async (req: Request, res: Response) => {
     const systemPrompt = `You are an educational Islamic debate and dialogue simulator called "محاكي الشبهات" (Skeptic Simulator).
 Your goal is to train students of knowledge and Muslims on how to articulate rational, compassionate, and evidence-backed answers to tough doubts and common objections raised against Islamic teachings.
 
+${APPROVED_SOURCES_REGULATION}
+
+PRIMARY DEBATE AND DIALOGUE REFERENCE:
+- Primary resource for dialogue strategies, questions, and counter-arguments: مرجع dawa.center/file/7937.
+- Quranic texts: quranpedia.net.
+- Authentic Hadiths: dorar.net/hadith, canonical Sunnah books, shamela.ws.
+- Islamic Creed: dorar.net/aqeeda and early scholars from the first three centuries.
+
 Role Play Instructions:
-1. When user_message is empty or starting: Generate the initial realistic doubt or skeptical objection regarding the topic ("${baseQuestion}"). The skeptic speaks politely, critically, and raises common doubts (e.g. why is this required? isn't that outdated? where is the proof?).
+1. When user_message is empty or starting: Generate the initial realistic doubt or skeptical objection regarding the topic ("${baseQuestion}") based on common objections documented in dawa.center/file/7937. The skeptic speaks politely, critically, and raises common doubts (e.g. why is this required? isn't that outdated? where is the proof?).
 2. When the user provides an answer (user_message):
    a. Evaluate the user's response:
       - "rating": "ممتاز" | "جيد جداً" | "يحتاج لمزيد من الأدلة"
       - "feedback": Constructive analysis of how well the user responded.
       - "strengths": 2-3 specific strong points in their argument or polite attitude.
       - "missing_points": Key verses, hadiths, or rational proofs they should incorporate.
-      - "hint": A practical hint or reference they can use next.
+      - "hint": A practical hint or reference from dawa.center/file/7937 or canonical Sunnah they can use next.
    b. Provide the next counterpoint from the skeptic ("skeptic_reply"), acknowledging valid points but pushing deeper or asking a related follow-up objection.
 
 Respond strictly in valid JSON:
@@ -1239,6 +1314,49 @@ app.post('/api/fatwa/skeptic/reset', (req: Request, res: Response) => {
     }
   }
   res.json({ success: true });
+});
+
+// 11. Submit Question to Specialized Scholar
+app.post('/api/fatwa/submit-to-scholar', (req: Request, res: Response) => {
+  try {
+    const { question, contact_info } = req.body;
+    if (!question || typeof question !== 'string' || !question.trim()) {
+      return res.status(400).json({ error: 'نص السؤال مطلوب' });
+    }
+
+    const newRequest: ScholarQuestionRequest = {
+      id: 'req-' + Date.now() + '-' + Math.random().toString(36).substring(2, 7),
+      question: question.trim(),
+      contact_info: typeof contact_info === 'string' ? contact_info.trim() : '',
+      status: 'قيد المراجعة',
+      created_at: new Date().toISOString()
+    };
+
+    if (!Array.isArray(db.scholarRequests)) {
+      db.scholarRequests = [];
+    }
+    db.scholarRequests.unshift(newRequest);
+    saveDB(db);
+
+    console.log(`[Scholar Question Submitted] ID: ${newRequest.id}, Question: ${newRequest.question.slice(0, 50)}...`);
+
+    res.json({
+      success: true,
+      message: 'تم إرسال سؤالك، سيصلك الرد من مختص قريباً إن شاء الله',
+      request: newRequest
+    });
+  } catch (err: any) {
+    console.error('Error submitting question to scholar:', err);
+    res.status(500).json({ error: 'تعذر إرسال السؤال حالياً، يرجى المحاولة لاحقاً' });
+  }
+});
+
+// 12. Internal List of Scholar Requests (Private / Internal Review Only)
+app.get('/api/scholar-requests', (req: Request, res: Response) => {
+  if (!Array.isArray(db.scholarRequests)) {
+    db.scholarRequests = [];
+  }
+  res.json(db.scholarRequests);
 });
 
 // Mount Vite or static files

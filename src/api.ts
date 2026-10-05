@@ -181,6 +181,34 @@ export async function skepticTurn(
   return handleResponse(res);
 }
 
+export async function submitQuestionToScholar(
+  question: string,
+  contact_info?: string
+): Promise<{
+  success: boolean;
+  message: string;
+  request: {
+    id: string;
+    question: string;
+    contact_info?: string;
+    status: 'قيد المراجعة' | 'تم الرد';
+    created_at: string;
+  };
+}> {
+  const res = await fetch(`${API_BASE}/fatwa/submit-to-scholar`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ question, contact_info }),
+  });
+  return handleResponse(res);
+}
+
+export async function getScholarRequests(): Promise<any[]> {
+  const res = await fetch(`${API_BASE}/scholar-requests`);
+  return handleResponse(res);
+}
+
+
 export async function skepticReset(fatwa_id?: string): Promise<void> {
   await fetch(`${API_BASE}/fatwa/skeptic/reset`, {
     method: 'POST',

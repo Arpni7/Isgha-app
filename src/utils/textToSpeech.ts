@@ -1,6 +1,6 @@
 /**
- * Arabic Text-to-Speech (TTS) Utility & Chunking Engine
- * Tailored for authentic Arabic recitation and natural speech cadence
+ * Arabic Text-to-Speech (TTS) Engine
+ * Designed specifically for high-clarity Arabic recitation and Web Speech API stability.
  */
 
 export interface VoiceOption {
@@ -13,10 +13,49 @@ const STORAGE_KEY_VOICE = 'isgha_tts_voice_uri';
 const STORAGE_KEY_RATE = 'isgha_tts_rate';
 
 /**
- * 1. Cleans text before feeding to SpeechSynthesis to eliminate glitchy pronunciations:
- * - Removes markdown syntax, brackets, page indicators, code blocks
- * - Collapses repeated punctuation (e.g. "???" -> "؟", "..." -> ".")
- * - Preserves essential pause marks (، . ؛ ؟ !)
+ * Wait for browser's SpeechSynthesis voices to be loaded via voiceschanged event.
+ * Fixes the known Web Speech API bug where getVoices() returns [] on initial load.
+ */
+export function waitForVoicesLoaded(timeoutMs = 2500): Promise<SpeechSynthesisVoice[]> {
+  if (typeof window === 'undefined' || !('speechSynthesis' in window)) {
+    return Promise.resolve([]);
+  }
+
+  const immediate = window.speechSynthesis.getVoices();
+  if (immediate && immediate.length > 0) {
+    return Promise.resolve(immediate);
+  }
+
+  return new Promise((resolve) => {
+    let resolved = false;
+
+    const timer = setTimeout(() => {
+      if (!resolved) {
+        resolved = true;
+        const current = window.speechSynthesis.getVoices() || [];
+        resolve(current);
+      }
+    }, timeoutMs);
+
+    const onVoicesChanged = () => {
+      if (!resolved) {
+        resolved = true;
+        clearTimeout(timer);
+        window.speechSynthesis.removeEventListener('voiceschanged', onVoicesChanged);
+        const voices = window.speechSynthesis.getVoices() || [];
+        resolve(voices);
+      }
+    };
+
+    window.speechSynthesis.addEventListener('voiceschanged', onVoicesChanged);
+  });
+}
+
+/**
+ * Cleans text before sending to SpeechSynthesis:
+ * - Removes Markdown formatting, brackets, page indicators, code blocks
+ * - Collapses repeated symbols (??? -> ؟, !!! -> !)
+ * - Preserves essential punctuation marks strictly (نقطة، فاصلة، علامة استفهام) for natural pauses
  */
 export function cleanTextForSpeech(text: string): string {
   if (!text) return '';
@@ -36,7 +75,7 @@ export function cleanTextForSpeech(text: string): string {
   // Remove Markdown bold/italic (*, **, _, __, ~~)
   cleaned = cleaned.replace(/[*_~]{1,3}/g, '');
 
-  // Remove Markdown blockquotes and list bullets
+  // Remove Markdown blockquotes and bullet points
   cleaned = cleaned.replace(/^[>*\-+•]\s+/gm, '');
 
   // Remove page indicators e.g. "ص 23", "صفحة 4", "ص: 12", "Page 4 of 10"
@@ -45,19 +84,19 @@ export function cleanTextForSpeech(text: string): string {
   // Remove footnote marks like [1], (2), [أ], etc.
   cleaned = cleaned.replace(/\[\d+\]|\(\d+\)|\[\p{L}\]/gu, '');
 
-  // Remove horizontal divider lines (---, ===, ___)
+  // Remove divider lines (---, ===, ___)
   cleaned = cleaned.replace(/^[-=_]{3,}\s*$/gm, '');
 
-  // Replace repeated punctuation with a single instance
+  // Normalize repeated punctuation to a single pause mark
   cleaned = cleaned.replace(/\.{2,}/g, '.');
   cleaned = cleaned.replace(/[؟?]{2,}/g, '؟');
   cleaned = cleaned.replace(/!{2,}/g, '!');
   cleaned = cleaned.replace(/[،,]{2,}/g, '،');
 
-  // Replace colons with comma pause for smoother auditory transition
+  // Replace colons with comma pause
   cleaned = cleaned.replace(/:\s+/g, '، ');
 
-  // Remove decorative brackets around Quranic verses ﴿ ﴾ or « » into clear spoken text
+  // Remove decorative brackets around Quranic verses ﴿ ﴾ or « » into spoken text
   cleaned = cleaned.replace(/[﴿»«﴾"']/g, ' ');
 
   // Collapse multiple whitespaces and excessive line breaks
@@ -69,14 +108,14 @@ export function cleanTextForSpeech(text: string): string {
 }
 
 /**
- * 2. Splits text into short, natural sentence chunks (< 160 characters):
- * Prevents browser speech synthesis cutoff bug (Chrome/Safari stop after ~15s or 200 chars).
+ * Splits text into short, natural sentence chunks (< 140 characters):
+ * Prevents browser speech synthesis cutoff bug and powers sequential queue execution.
  */
-export function splitTextIntoChunks(text: string, maxLen = 160): string[] {
+export function splitTextIntoChunks(text: string, maxLen = 140): string[] {
   const cleaned = cleanTextForSpeech(text);
   if (!cleaned) return [];
 
-  // Split along sentence endings or natural pauses
+  // Split along sentence endings or natural pauses (. ، ؛ ؟ ! \n)
   const rawParts = cleaned.split(/(?<=[.،؛؟!؟\n])/);
   const chunks: string[] = [];
   let currentChunk = '';
@@ -92,7 +131,7 @@ export function splitTextIntoChunks(text: string, maxLen = 160): string[] {
         chunks.push(currentChunk);
       }
       if (trimmed.length > maxLen) {
-        // Break excessively long segment by spaces
+        // Break long segment by spaces
         const words = trimmed.split(/\s+/);
         let subChunk = '';
         for (const word of words) {
@@ -118,26 +157,30 @@ export function splitTextIntoChunks(text: string, maxLen = 160): string[] {
 }
 
 /**
- * 3. Discover, categorize and prioritize Arabic voices:
- * Highest priority: ar-SA (Saudi Arabic).
- * Fallback priority: other Arabic dialects (ar-EG, ar-AE, ar-KW, etc.).
- * Strictly excludes non-Arabic voices.
+ * Discover, filter and prioritize Arabic voices:
+ * Filters strictly by lang === 'ar-SA' first, then lang.startsWith('ar').
+ * Prints available voices to console for easy diagnostics.
  */
-export function getArabicVoices(): VoiceOption[] {
+export function getArabicVoices(voicesList?: SpeechSynthesisVoice[]): VoiceOption[] {
   if (typeof window === 'undefined' || !('speechSynthesis' in window)) {
     return [];
   }
 
-  const allVoices = window.speechSynthesis.getVoices();
+  const allVoices = voicesList && voicesList.length > 0
+    ? voicesList
+    : window.speechSynthesis.getVoices() || [];
 
+  // Filter Level 1 & 2: strictly Arabic voices only
   const arabicVoices = allVoices.filter((v) => {
-    const lang = (v.lang || '').toLowerCase();
+    const lang = (v.lang || '').replace('_', '-').toLowerCase();
     const name = (v.name || '').toLowerCase();
     return (
+      lang === 'ar-sa' ||
       lang.startsWith('ar') ||
-      lang.includes('arabic') ||
       name.includes('arabic') ||
       name.includes('saudi') ||
+      name.includes('عربي') ||
+      name.includes('السعودية') ||
       name.includes('majed') ||
       name.includes('naayf') ||
       name.includes('tarik') ||
@@ -147,19 +190,30 @@ export function getArabicVoices(): VoiceOption[] {
     );
   });
 
+  // Diagnostic logging to console as explicitly requested
+  if (arabicVoices.length > 0) {
+    console.log(
+      '[TTS Diagnostic] Available Arabic voices on device:',
+      arabicVoices.map((v) => `${v.name} (${v.lang})`)
+    );
+  } else if (allVoices.length > 0) {
+    console.warn(
+      '[TTS Diagnostic] No Arabic voice found on device. Total system voices:',
+      allVoices.length
+    );
+  }
+
   return arabicVoices.map((v) => {
-    const lang = (v.lang || '').toLowerCase();
+    const lang = (v.lang || '').replace('_', '-').toLowerCase();
     const name = (v.name || '').toLowerCase();
     const isSaudi =
       lang === 'ar-sa' ||
-      lang.startsWith('ar-sa') ||
       name.includes('saudi') ||
       name.includes('السعودية') ||
       name.includes('naayf') ||
       name.includes('maged') ||
       name.includes('tarik');
 
-    // Clean, readable label
     let displayName = v.name;
     if (isSaudi) {
       displayName = `🇸🇦 ${v.name} (عربي - السعودية)`;
@@ -174,7 +228,7 @@ export function getArabicVoices(): VoiceOption[] {
       displayName
     };
   }).sort((a, b) => {
-    // Saudi voices first, then alphabetical
+    // Saudi voices first, then others
     if (a.isSaudi && !b.isSaudi) return -1;
     if (!a.isSaudi && b.isSaudi) return 1;
     return a.displayName.localeCompare(b.displayName);
@@ -182,22 +236,27 @@ export function getArabicVoices(): VoiceOption[] {
 }
 
 /**
- * 4. Pick best available Saudi/Arabic voice, honoring user saved preference
+ * Pick best available Saudi/Arabic voice, honoring user saved preference.
+ * Guaranteed never to return a foreign/English voice.
  */
 export function selectBestVoice(available: VoiceOption[]): SpeechSynthesisVoice | null {
   if (available.length === 0) return null;
 
+  // 1. Check user preference from localStorage
   const savedUri = typeof window !== 'undefined' ? localStorage.getItem(STORAGE_KEY_VOICE) : null;
   if (savedUri) {
     const matched = available.find((v) => v.voice.voiceURI === savedUri);
     if (matched) return matched.voice;
   }
 
-  // Find first Saudi voice
-  const saudiVoice = available.find((v) => v.isSaudi);
+  // 2. Strict Priority: ar-SA first
+  const saudiVoice = available.find((v) => {
+    const lang = (v.voice.lang || '').replace('_', '-').toLowerCase();
+    return lang === 'ar-sa' || v.isSaudi;
+  });
   if (saudiVoice) return saudiVoice.voice;
 
-  // Otherwise pick first Arabic voice
+  // 3. Fallback: First available Arabic voice
   return available[0].voice;
 }
 
@@ -207,14 +266,17 @@ export function saveVoicePreference(voiceUri: string): void {
   }
 }
 
+/**
+ * Rate strictly adjusted between 0.85 and 1.0 (default 0.90 for natural cadence)
+ */
 export function getSavedRatePreference(): number {
-  if (typeof window === 'undefined') return 1.0;
+  if (typeof window === 'undefined') return 0.90;
   const saved = localStorage.getItem(STORAGE_KEY_RATE);
   if (saved) {
     const val = parseFloat(saved);
-    if (!isNaN(val) && val >= 0.7 && val <= 1.5) return val;
+    if (!isNaN(val) && val >= 0.80 && val <= 1.10) return val;
   }
-  return 1.0; // Natural balanced default
+  return 0.90; // Natural, steady, clear default
 }
 
 export function saveRatePreference(rate: number): void {
