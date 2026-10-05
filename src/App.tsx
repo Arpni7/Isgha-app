@@ -108,6 +108,9 @@ function AppContent() {
               setActiveFatwaTopic(q);
               setCurrentTab('fatwa');
             }}
+            onOpenSkeptic={(topic, fId) => {
+              handleOpenSkepticWithTopic(topic, fId);
+            }}
             onStartNew={() => setCurrentTab('home')}
             onBack={() => setCurrentTab('home')}
           />

@@ -122,11 +122,17 @@ export interface ScholarRef {
   source: string;
 }
 
+export interface MainTopic {
+  title: string;
+  benefits: string[];
+}
+
 export interface Extraction {
   id: string;
   title: string;
   summary: string;
   benefits: string[];
+  topics?: MainTopic[];
   verses: QuranVerse[];
   hadiths: HadithItem[];
   sources: string[];
@@ -226,6 +232,22 @@ const initialDB: Database = {
         'صيام عاشوراء يكفر ذنوب سنة ماضية (الصغائر دون الكبائر).',
         'مشروعية مخالفة أهل الكتاب بصيام اليوم التاسع (تاسوعاء) مع العاشر.',
         'شكر الله تعالى على نجاة موسى وقومه وإغراق فرعون وجنوده.'
+      ],
+      topics: [
+        {
+          title: 'مكانة شهر الله المحرم وفضائل صيامه',
+          benefits: [
+            'شهر المحرم من الأشهر الحرم العظيمة التي يُعظم فيها العمل الصالح والإثم.',
+            'صيام عاشوراء يكفر ذنوب سنة ماضية (الصغائر دون الكبائر).'
+          ]
+        },
+        {
+          title: 'أحكام صيام عاشوراء وتاسوعاء',
+          benefits: [
+            'مشروعية مخالفة أهل الكتاب بصيام اليوم التاسع (تاسوعاء) مع العاشر.',
+            'شكر الله تعالى على نجاة موسى وقومه وإغراق فرعون وجنوده.'
+          ]
+        }
       ],
       verses: [
         {
@@ -582,7 +604,13 @@ Respond strictly in valid JSON format matching this schema:
 {
   "title": "A concise title in ${language === 'ar' ? 'Arabic' : 'the requested language'}",
   "summary": "Concise 2-3 sentence scholarly summary",
-  "benefits": ["Benefit 1", "Benefit 2", "Benefit 3", "Benefit 4"],
+  "topics": [
+    {
+      "title": "Main topic / theme title",
+      "benefits": ["Benefit 1 under this topic", "Benefit 2 under this topic"]
+    }
+  ],
+  "benefits": ["Flat list of all core benefits"],
   "verses": [
     {
       "arabic": "Full Quranic verse in Arabic text with diacritics",
@@ -613,11 +641,26 @@ Respond strictly in valid JSON format matching this schema:
     });
 
     const parsed = safeParseJSON(rawText, {});
+    let parsedTopics: MainTopic[] = Array.isArray(parsed.topics) && parsed.topics.length > 0 ? parsed.topics : [];
+    let parsedBenefits: string[] = Array.isArray(parsed.benefits) && parsed.benefits.length > 0 ? parsed.benefits : [];
+
+    if (parsedTopics.length > 0 && parsedBenefits.length === 0) {
+      parsedBenefits = parsedTopics.flatMap((t) => t.benefits || []);
+    } else if (parsedBenefits.length > 0 && parsedTopics.length === 0) {
+      parsedTopics = [
+        {
+          title: 'الفوائد والدروس المستخلصة',
+          benefits: parsedBenefits
+        }
+      ];
+    }
+
     const newExtraction: Extraction = {
       id: 'ext-' + Date.now() + '-' + Math.random().toString(36).substring(2, 6),
       title: parsed.title || 'استخلاص فوائد إسلامية',
       summary: parsed.summary || 'تم استخلاص وتحليل محتوى النص الإسلامي وتوثيق الأدلة الواردة فيه.',
-      benefits: Array.isArray(parsed.benefits) && parsed.benefits.length > 0 ? parsed.benefits : ['الاستفادة من النص الشرعي وتطبيق ما جاء فيه.'],
+      benefits: parsedBenefits.length > 0 ? parsedBenefits : ['الاستفادة من النص الشرعي وتطبيق ما جاء فيه.'],
+      topics: parsedTopics,
       verses: Array.isArray(parsed.verses) ? parsed.verses : [],
       hadiths: Array.isArray(parsed.hadiths) ? parsed.hadiths : [],
       sources: Array.isArray(parsed.sources) ? parsed.sources : ['صحيح السنة والقرآن الكريم'],
@@ -730,13 +773,26 @@ app.post('/api/listen/upload', async (req: Request, res: Response) => {
 
     const systemPrompt = `You are an expert Islamic scholarly content analyst and Hadith verification scholar.
 Analyze the transcribed/provided Islamic speech, lecture or document carefully.
-Extract the core Islamic benefits, cited Quranic verses, cited Prophetic Hadiths with narrator and canonical source, and scholarly references.
+Extract the core Islamic benefits organized by main topics/themes, cited Quranic verses, cited Prophetic Hadiths with narrator and canonical source, and scholarly references.
 
-Respond strictly in valid JSON format:
+${APPROVED_SOURCES_REGULATION}
+
+STRICT EXTRACTION RULES:
+1. Holy Quran: For any cited verse, provide the verified exact text and orthography conforming to quranpedia.net with exact Surah and Ayah reference.
+2. Prophetic Hadiths: Strictly verify against dorar.net/hadith, canonical editions of the Sunnah books, or shamela.ws. NEVER attribute a hadith without its canonical source, companion narrator, and authentic grade (صحيح, حسن, متفق عليه).
+3. If any narration or reference cannot be authenticated from this approved table, omit it rather than citing unverified text.
+
+Respond strictly in valid JSON format matching this schema:
 {
   "title": "A concise, appropriate title for the lecture in Arabic",
   "summary": "Comprehensive 3-5 sentence scholarly summary",
-  "benefits": ["Benefit 1", "Benefit 2", "Benefit 3", "Benefit 4"],
+  "topics": [
+    {
+      "title": "Main topic / theme title (الموضوع الأول: ...)",
+      "benefits": ["Benefit 1 under this topic", "Benefit 2 under this topic"]
+    }
+  ],
+  "benefits": ["Flat list of all core benefits"],
   "verses": [
     {
       "arabic": "Full Quranic verse in Arabic",
@@ -751,7 +807,7 @@ Respond strictly in valid JSON format:
       "grade": "Authenticity grade (صحيح, حسن, متفق عليه)"
     }
   ],
-  "sources": ["Scholarly references"]
+  "sources": ["Scholarly references from approved table"]
 }`;
 
     const rawText = await generateWithFallback({
@@ -767,11 +823,26 @@ Respond strictly in valid JSON format:
     });
 
     const parsed = safeParseJSON(rawText, {});
+    let parsedTopics: MainTopic[] = Array.isArray(parsed.topics) && parsed.topics.length > 0 ? parsed.topics : [];
+    let parsedBenefits: string[] = Array.isArray(parsed.benefits) && parsed.benefits.length > 0 ? parsed.benefits : [];
+
+    if (parsedTopics.length > 0 && parsedBenefits.length === 0) {
+      parsedBenefits = parsedTopics.flatMap((t) => t.benefits || []);
+    } else if (parsedBenefits.length > 0 && parsedTopics.length === 0) {
+      parsedTopics = [
+        {
+          title: 'الفوائد والدروس المستخلصة',
+          benefits: parsedBenefits
+        }
+      ];
+    }
+
     const newExtraction: Extraction = {
       id: 'ext-' + Date.now() + '-' + Math.random().toString(36).substring(2, 6),
       title: parsed.title || (filename ? `تحليل: ${filename}` : 'تسجيل إسلامي محلل'),
       summary: parsed.summary || 'تم تحليل التسجيل واستخلاص أهم الفوائد والآيات والأحاديث.',
-      benefits: Array.isArray(parsed.benefits) && parsed.benefits.length > 0 ? parsed.benefits : ['العمل بما جاء في كتاب الله وسنة رسوله ﷺ.'],
+      benefits: parsedBenefits.length > 0 ? parsedBenefits : ['العمل بما جاء في كتاب الله وسنة رسوله ﷺ.'],
+      topics: parsedTopics,
       verses: Array.isArray(parsed.verses) ? parsed.verses : [],
       hadiths: Array.isArray(parsed.hadiths) ? parsed.hadiths : [],
       sources: Array.isArray(parsed.sources) ? parsed.sources : ['صحيح السنة والقرآن الكريم'],
@@ -935,6 +1006,175 @@ Return strictly valid JSON:
   } catch (err: any) {
     console.error('Error in /api/listen/transform:', err);
     res.status(503).json({ error: 'الخدمة تشهد ضغطاً مؤقتاً، يرجى إعادة المحاولة بعد لحظات.' });
+  }
+});
+
+// 5b. Verify Fact / Claim (تحقق من المعلومة)
+app.post('/api/verify-fact', async (req: Request, res: Response) => {
+  try {
+    const { statement, context = '' } = req.body;
+    if (!statement || typeof statement !== 'string' || !statement.trim()) {
+      return res.status(400).json({ error: 'نص المعلومة مطلوب للتحقق' });
+    }
+
+    const norm = normalizeKey(statement.slice(0, 100));
+    const cached = fastResponseCache.get(`verify_${norm}`);
+    if (cached) {
+      return res.json(cached);
+    }
+
+    const systemPrompt = `You are a scrupulous Islamic scholar and Hadith verification expert (مُحقّق وباحث في التخريج والتوثيق الشرعي).
+Your role is to rigorously verify the accuracy of the provided Islamic statement, claim, quote, verse, or Hadith.
+
+${APPROVED_SOURCES_REGULATION}
+
+STRICT FACT-CHECKING RULES:
+1. Determine if this statement has an authentic, verified basis in the Approved Sources Table:
+   - Quranic text: quranpedia.net
+   - Exegesis (Tafseer): dorar.net/tafseer or classical commentators (Tabari, Ibn Kathir, Baghawi, Qurtubi)
+   - Prophetic Hadith: dorar.net/hadith, canonical Sunnah books (Bukhari, Muslim, Abu Dawood, Tirmidhi, Nasa'i, Ibn Majah), shamela.ws
+   - Fiqh: four Sunni madhhabs or dorar.net/feqhia
+   - Objections & Common Questions: dawa.center/file/7937
+2. If verified:
+   - "status": "verified"
+   - "status_label": "موثق بمصدر معتمد"
+   - "source_name": Exact book/encyclopedia title and source (e.g. "موسوعة الأحاديث النبوية — dorar.net/hadith (صحيح البخاري، رقم 2004)")
+   - "source_url": Real URL if applicable (e.g. "https://dorar.net/hadith" or "https://quranpedia.net")
+   - "evidence_text": Exact verified text of the Ayah, Hadith, or classical scholar quote with narrator and grade
+   - "explanation": Concise 1-2 sentence verification note confirming the meaning and context
+3. If unverified or no reliable source exists:
+   - "status": "unverified"
+   - "status_label": "لم يُعثر على مصدر معتمد مباشر"
+   - "source_name": "غير متوفر في المصادر المعتمدة"
+   - "source_url": ""
+   - "evidence_text": ""
+   - "explanation": Honest explanation stating that this wording or claim was not found in the verified Sunnah or canonical texts, reminding the user not to attribute it without evidence. DO NOT invent or fabricate any source!
+
+Respond strictly in valid JSON:
+{
+  "statement": "${statement.replace(/"/g, '\\"')}",
+  "status": "verified" | "unverified" | "needs_context",
+  "status_label": "موثق بمصدر معتمد / لم يُعثر على مصدر معتمد",
+  "source_name": "Source title",
+  "source_url": "URL or empty",
+  "evidence_text": "Exact text or empty",
+  "explanation": "Clarification"
+}`;
+
+    const rawText = await generateWithFallback({
+      contents: [{ role: 'user', parts: [{ text: `Statement to verify:\n"${statement}"\n\nContext:\n${context}` }] }],
+      systemInstruction: systemPrompt,
+      responseMimeType: 'application/json',
+      temperature: 0.1
+    });
+
+    const parsed = safeParseJSON(rawText, {
+      statement,
+      status: 'unverified',
+      status_label: 'لم يُعثر على مصدر معتمد مباشر',
+      source_name: 'غير متوفر في المصادر المعتمدة',
+      source_url: '',
+      evidence_text: '',
+      explanation: 'لم يتم العثور على نص صريح مطابق لهذه الصيغة في المصادر المعتمدة.'
+    });
+
+    fastResponseCache.set(`verify_${norm}`, parsed);
+    res.json(parsed);
+  } catch (err: any) {
+    console.error('Error in /api/verify-fact:', err);
+    res.status(503).json({ error: 'تعذر التحقق حالياً، يرجى المحاولة بعد قليل.' });
+  }
+});
+
+// 5c. Adapt Benefit (ماذا تريد أن تفعل بهذه المعلومة؟)
+app.post('/api/benefit/adapt', async (req: Request, res: Response) => {
+  try {
+    const { benefit, mode, title = '', target_lang = 'ar' } = req.body;
+    if (!benefit || typeof benefit !== 'string' || !benefit.trim()) {
+      return res.status(400).json({ error: 'نص الفائدة مطلوب' });
+    }
+
+    let instruction = '';
+    const effectiveLang = mode === 'translate' && (!target_lang || target_lang === 'ar') ? 'en' : (target_lang || 'ar');
+    const langNames: Record<string, string> = {
+      en: 'English (الإنجليزية)',
+      fr: 'French (الفرنسية)',
+      ur: 'Urdu (الأردية)',
+      tr: 'Turkish (التركية)',
+      id: 'Indonesian (الإندونيسية)',
+      ar: 'Arabic (العربية)'
+    };
+    const langDisplayName = langNames[effectiveLang] || effectiveLang;
+
+    if (mode === 'understand') {
+      instruction = `Explain this core benefit deeply for personal contemplation, spiritual purification (تزكية النفس), and self-understanding.
+- Provide a clear, reflective explanation of the wisdom and underlying meaning.
+- Outline 2-3 specific personal reflection questions or daily actionable habits to practice this silently and sincerely.
+- Keep the tone calm, serene, and grounded in authentic teachings.`;
+    } else if (mode === 'child') {
+      instruction = `Adapt and explain this benefit for a child (ages 7-12).
+- Use warm, loving, gentle, engaging language.
+- Use a relatable real-life analogy (school, home, helping others).
+- Explain why Allah loves this deed and what good deeds come from it.
+- Keep it encouraging and joyful.`;
+    } else if (mode === 'nonmuslim') {
+      instruction = `Explain this benefit to a non-Muslim or someone unfamiliar with Islamic concepts.
+- Use universal, compassionate, clear language without insider jargon.
+- Highlight the spiritual beauty, social harmony, psychological peace, and moral excellence.
+- Frame the concept around mercy, purpose in life, and ethical human relationships.`;
+    } else if (mode === 'skeptic') {
+      instruction = `Prepare rational, evidence-based talking points to discuss this topic with a skeptic or someone raising doubts, referencing principles from dawa.center/file/7937.
+- State the common objection or misunderstanding clearly.
+- Provide a respectful, logically sound rebuttal with calm rational proofs and established texts.
+- Conclude with a strong, dignified insight.`;
+    } else {
+      instruction = `Translate and clearly explain this Islamic benefit into ${langDisplayName}, adhering to authentic translations of sensitive Islamic terminology from reputable lexicons (such as islamic-content.com/dictionary). Preserve sacred terms with respect and accuracy.`;
+    }
+
+    const systemPrompt = `You are an expert Islamic communicator and educator adapting Islamic knowledge for different audiences while strictly preserving authentic meaning and zero hallucination.
+
+${APPROVED_SOURCES_REGULATION}
+
+Task: ${instruction}
+Target Language: ${effectiveLang}
+
+Original Benefit:
+"${benefit}"
+${title ? `Context: From lecture "${title}"` : ''}
+
+Respond strictly in valid JSON:
+{
+  "mode": "${mode}",
+  "title": "A short, fitting title in ${effectiveLang === 'ar' ? 'Arabic' : 'the target language'}",
+  "content": "The formatted adapted text with paragraphs and bullet points."
+}`;
+
+    const rawText = await generateWithFallback({
+      contents: [{ role: 'user', parts: [{ text: `Adapt this benefit: "${benefit}"` }] }],
+      systemInstruction: systemPrompt,
+      responseMimeType: 'application/json',
+      temperature: 0.3
+    });
+
+    const parsed = safeParseJSON(rawText, {
+      mode,
+      title:
+        mode === 'understand'
+          ? '👤 أفهمها لنفسي وتطبيقها'
+          : mode === 'child'
+          ? '👧 تبسيط للطفل والناشئة'
+          : mode === 'nonmuslim'
+          ? '🌍 شرح لغير المسلم'
+          : mode === 'skeptic'
+          ? '💬 حوار المتشكك وتفنيد الشبهة'
+          : `🌐 ترجمة الفائدة (${langDisplayName})`,
+      content: benefit
+    });
+
+    res.json(parsed);
+  } catch (err: any) {
+    console.error('Error in /api/benefit/adapt:', err);
+    res.status(503).json({ error: 'تعذر تكييف الفائدة حالياً، يرجى المحاولة بعد قليل.' });
   }
 });
 

@@ -1,4 +1,4 @@
-import { Extraction, FatwaRecord } from './types';
+import { Extraction, FatwaRecord, FactVerificationResult } from './types';
 
 const API_BASE = '/api';
 
@@ -216,3 +216,30 @@ export async function skepticReset(fatwa_id?: string): Promise<void> {
     body: JSON.stringify({ fatwa_id }),
   });
 }
+
+export async function verifyFact(
+  statement: string,
+  context?: string
+): Promise<FactVerificationResult> {
+  const res = await fetch(`${API_BASE}/verify-fact`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ statement, context }),
+  });
+  return handleResponse(res);
+}
+
+export async function adaptBenefit(
+  benefit: string,
+  mode: string,
+  title?: string,
+  target_lang?: string
+): Promise<{ mode: string; title: string; content: string }> {
+  const res = await fetch(`${API_BASE}/benefit/adapt`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ benefit, mode, title, target_lang }),
+  });
+  return handleResponse(res);
+}
+

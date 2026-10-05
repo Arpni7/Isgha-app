@@ -16,11 +16,17 @@ export interface ScholarRef {
   source: string;
 }
 
+export interface MainTopic {
+  title: string;
+  benefits: string[];
+}
+
 export interface Extraction {
   id: string;
   title: string;
   summary: string;
   benefits: string[];
+  topics?: MainTopic[];
   verses: QuranVerse[];
   hadiths: HadithItem[];
   sources: string[];
@@ -28,6 +34,16 @@ export interface Extraction {
   original_text?: string;
   language?: string;
   transformations?: Record<string, string>;
+}
+
+export interface FactVerificationResult {
+  statement: string;
+  status: 'verified' | 'unverified' | 'needs_context';
+  status_label: string;
+  source_name: string;
+  source_url?: string;
+  evidence_text?: string;
+  explanation: string;
 }
 
 export interface FatwaFollowup {
