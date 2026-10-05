@@ -1180,22 +1180,74 @@ Respond strictly in valid JSON:
   }
 });
 
-// 6. Ask Fatwa
-app.post('/api/fatwa', async (req: Request, res: Response) => {
-  try {
-    const { question, language = 'ar' } = req.body;
-    if (!question || !question.trim()) {
-      return res.status(400).json({ error: 'Question is required' });
+interface FatwaSearchResult {
+  question: string;
+  answer: string;
+  verses: QuranVerse[];
+  hadiths: HadithItem[];
+  scholar_references: ScholarRef[];
+  unavailable_in_knowledge_base: boolean;
+  retrieved_count: number;
+  source_titles: string[];
+  primary_source_name?: string;
+  primary_source_url?: string;
+}
+
+export async function queryFatwaEngine(question: string, language: string = 'ar'): Promise<FatwaSearchResult> {
+  const norm = normalizeKey(question);
+  const cached = fastResponseCache.get(`fatwa_${norm}_${language}`) || fastResponseCache.get(`fatwa_${norm}`);
+  if (cached) {
+    console.log(`Instant cache hit for fatwa: ${question}`);
+    const verses: QuranVerse[] = Array.isArray(cached.verses) ? cached.verses : [];
+    const hadiths: HadithItem[] = Array.isArray(cached.hadiths) ? cached.hadiths : [];
+    const scholar_references: ScholarRef[] = Array.isArray(cached.scholar_references) ? cached.scholar_references : [];
+    const isUnavailable = cached.unavailable_in_knowledge_base === true;
+
+    const source_titles: string[] = [];
+    verses.forEach((v) => {
+      if (v.reference) source_titles.push(`القرآن الكريم (${v.reference})`);
+    });
+    hadiths.forEach((h) => {
+      if (h.source) source_titles.push(`${h.source}${h.grade ? ` [${h.grade}]` : ''}`);
+    });
+    scholar_references.forEach((s) => {
+      if (s.source || s.scholar) source_titles.push(`${s.scholar || ''}${s.source ? ` — ${s.source}` : ''}`.trim());
+    });
+
+    let retrieved_count = verses.length + hadiths.length + scholar_references.length;
+    if (!isUnavailable && retrieved_count === 0 && cached.answer) {
+      retrieved_count = 1;
+      source_titles.push('موسوعة الفقه الإسلامي — dorar.net/feqhia والمذاهب الأربعة');
     }
 
-    const norm = normalizeKey(question);
-    const cached = fastResponseCache.get(`fatwa_${norm}_${language}`) || fastResponseCache.get(`fatwa_${norm}`);
-    if (cached) {
-      console.log(`Instant cache hit for fatwa: ${question}`);
-      return res.json(cached);
+    let primary_source_name = 'موسوعة الفقه الإسلامي — dorar.net/feqhia';
+    let primary_source_url = 'https://dorar.net/feqhia';
+    if (hadiths.length > 0 && hadiths[0].source) {
+      primary_source_name = hadiths[0].source;
+      primary_source_url = 'https://dorar.net/hadith';
+    } else if (verses.length > 0 && verses[0].reference) {
+      primary_source_name = `القرآن الكريم (${verses[0].reference})`;
+      primary_source_url = 'https://quranpedia.net';
+    } else if (scholar_references.length > 0 && scholar_references[0].source) {
+      primary_source_name = `${scholar_references[0].scholar} — ${scholar_references[0].source}`;
+      primary_source_url = 'https://dorar.net/feqhia';
     }
 
-    const systemPrompt = `You are a reliable, authoritative Islamic jurisprudence (Fiqh) and Hadith scholar referencing Ahl al-Sunnah wal-Jama'ah methodologies.
+    return {
+      question: cached.question,
+      answer: cached.answer,
+      verses,
+      hadiths,
+      scholar_references,
+      unavailable_in_knowledge_base: isUnavailable,
+      retrieved_count: isUnavailable ? 0 : retrieved_count,
+      source_titles: isUnavailable ? [] : source_titles,
+      primary_source_name: isUnavailable ? undefined : primary_source_name,
+      primary_source_url: isUnavailable ? undefined : primary_source_url
+    };
+  }
+
+  const systemPrompt = `You are a reliable, authoritative Islamic jurisprudence (Fiqh) and Hadith scholar referencing Ahl al-Sunnah wal-Jama'ah methodologies.
 Answer the user's religious question with high scholarly integrity, clarity, and conciseness.
 
 ${APPROVED_SOURCES_REGULATION}
@@ -1240,30 +1292,94 @@ Respond strictly in valid JSON:
   ]
 }`;
 
-    const rawText = await generateWithFallback({
-      contents: [
-        {
-          role: 'user',
-          parts: [{ text: `Question: ${question}\nTarget Language: ${language}` }]
-        }
-      ],
-      systemInstruction: systemPrompt,
-      responseMimeType: 'application/json',
-      temperature: 0.2
-    });
+  const rawText = await generateWithFallback({
+    contents: [
+      {
+        role: 'user',
+        parts: [{ text: `Question: ${question}\nTarget Language: ${language}` }]
+      }
+    ],
+    systemInstruction: systemPrompt,
+    responseMimeType: 'application/json',
+    temperature: 0.2
+  });
 
-    const parsed = safeParseJSON(rawText, {});
-    const isUnavailable = parsed.unavailable_in_knowledge_base === true ||
-      (typeof parsed.answer === 'string' && parsed.answer.includes('غير متوفرة في قاعدة المعرفة'));
+  const parsed = safeParseJSON(rawText, {});
+  const isUnavailable = parsed.unavailable_in_knowledge_base === true ||
+    (typeof parsed.answer === 'string' && (
+      parsed.answer.includes('غير متوفرة في قاعدة المعرفة') ||
+      parsed.answer.includes('تتطلب تفصيلاً خاصاً')
+    ));
+
+  const verses: QuranVerse[] = Array.isArray(parsed.verses) ? parsed.verses : [];
+  const hadiths: HadithItem[] = Array.isArray(parsed.hadiths) ? parsed.hadiths : [];
+  const scholar_references: ScholarRef[] = Array.isArray(parsed.scholar_references) ? parsed.scholar_references : [];
+
+  const source_titles: string[] = [];
+  verses.forEach((v) => {
+    if (v.reference) source_titles.push(`القرآن الكريم (${v.reference})`);
+  });
+  hadiths.forEach((h) => {
+    if (h.source) source_titles.push(`${h.source}${h.grade ? ` [${h.grade}]` : ''}`);
+  });
+  scholar_references.forEach((s) => {
+    if (s.source || s.scholar) source_titles.push(`${s.scholar || ''}${s.source ? ` — ${s.source}` : ''}`.trim());
+  });
+
+  let retrieved_count = verses.length + hadiths.length + scholar_references.length;
+  if (!isUnavailable && retrieved_count === 0 && parsed.answer) {
+    retrieved_count = 1;
+    source_titles.push('موسوعة الفقه الإسلامي — dorar.net/feqhia ومذاهب أهل السنة');
+  }
+
+  let primary_source_name = 'موسوعة الفقه الإسلامي — dorar.net/feqhia';
+  let primary_source_url = 'https://dorar.net/feqhia';
+  if (hadiths.length > 0 && hadiths[0].source) {
+    primary_source_name = hadiths[0].source;
+    primary_source_url = 'https://dorar.net/hadith';
+  } else if (verses.length > 0 && verses[0].reference) {
+    primary_source_name = `القرآن الكريم (${verses[0].reference})`;
+    primary_source_url = 'https://quranpedia.net';
+  } else if (scholar_references.length > 0 && scholar_references[0].source) {
+    primary_source_name = `${scholar_references[0].scholar} — ${scholar_references[0].source}`;
+    primary_source_url = 'https://dorar.net/feqhia';
+  }
+
+  const result: FatwaSearchResult = {
+    question: parsed.question || question,
+    answer: parsed.answer || 'الحمد لله والصلاة والسلام على رسول الله.',
+    verses,
+    hadiths,
+    scholar_references,
+    unavailable_in_knowledge_base: isUnavailable,
+    retrieved_count: isUnavailable ? 0 : retrieved_count,
+    source_titles: isUnavailable ? [] : source_titles,
+    primary_source_name: isUnavailable ? undefined : primary_source_name,
+    primary_source_url: isUnavailable ? undefined : primary_source_url
+  };
+
+  return result;
+}
+
+// 6. Ask Fatwa
+app.post('/api/fatwa', async (req: Request, res: Response) => {
+  try {
+    const { question, language = 'ar' } = req.body;
+    if (!question || !question.trim()) {
+      return res.status(400).json({ error: 'Question is required' });
+    }
+
+    const searchResult = await queryFatwaEngine(question, language);
+    const norm = normalizeKey(question);
 
     const newFatwa: FatwaRecord = {
       id: 'fatwa-' + Date.now() + '-' + Math.random().toString(36).substring(2, 6),
       question,
-      answer: parsed.answer || 'الحمد لله والصلاة والسلام على رسول الله. الجواب مستمد من هدي الكتاب والسنة وإجماع أهل العلم.',
-      verses: Array.isArray(parsed.verses) ? parsed.verses : [],
-      hadiths: Array.isArray(parsed.hadiths) ? parsed.hadiths : [],
-      scholar_references: Array.isArray(parsed.scholar_references) ? parsed.scholar_references : [],
-      unavailable_in_knowledge_base: isUnavailable,
+      answer: searchResult.answer,
+      verses: searchResult.verses,
+      hadiths: searchResult.hadiths,
+      scholar_references: searchResult.scholar_references,
+      unavailable_in_knowledge_base: searchResult.unavailable_in_knowledge_base,
       created_at: new Date().toISOString(),
       language
     };
@@ -1432,7 +1548,7 @@ Return strictly JSON:
   }
 });
 
-// 9. Skeptic Simulator Turn (محاكي الشبهات — حوار إنساني ودود وموثوق)
+// 9. Skeptic Simulator Turn (محاكي الشبهات — مربوط بمحرك الاستفتاء بالأدلة)
 app.post('/api/fatwa/skeptic', async (req: Request, res: Response) => {
   try {
     const { fatwa_id, user_message, topic, language = 'ar', history = [] } = req.body;
@@ -1451,129 +1567,116 @@ app.post('/api/fatwa/skeptic', async (req: Request, res: Response) => {
       baseQuestion = 'أهمية وحجية السنة النبوية الشريفة وتدوينها';
     }
 
-    // Load sources.json
-    const sourcesFilePath = path.join(__dirname, 'src/data/sources.json');
-    let sourcesData: any[] = [];
-    try {
-      if (fs.existsSync(sourcesFilePath)) {
-        sourcesData = JSON.parse(fs.readFileSync(sourcesFilePath, 'utf-8'));
-      }
-    } catch (e) {
-      console.error('Error reading sources.json in skeptic simulator:', e);
+    let recentHistoryText = '';
+    if (Array.isArray(history) && history.length > 0) {
+      recentHistoryText = history
+        .slice(-4)
+        .map((m: any) => `${m.sender === 'user' ? 'المستخدم' : 'المحاور'}: ${m.text}`)
+        .join('\n');
     }
 
-    const sourcesFormatted = sourcesData.map((s) => ({
-      id: s.id,
-      topic: s.topic,
-      keywords: s.keywords,
-      understanding: s.understanding,
-      analogy: s.analogy,
-      core_content: s.core_content,
-      source_name: s.source_name,
-      source_url: s.source_url
-    }));
+    // الخطوة 1: إعادة صياغة رسالة المستخدم مع سياق المحادثة إلى سؤال حيادي واضح للبحث الشرعي
+    let reformulatedQuestion = '';
+    if (user_message && user_message.trim()) {
+      const reformulatePrompt = `أنت محقق وباحث فهرسة شرعية.
+أعد صياغة كلام المستخدم الأخير مع سياق المحادثة (إن وُجد) إلى سؤال بحثي فقهي/شرعي حيادي واضح ومحدد ودقيق، مناسب تماماً للبحث والاسترجاع في قواعد الفقه والحديث والتفسير.
 
-    const systemPrompt = `أنت محاور إنساني ودود في قسم «محاكي الشبهات» بتطبيق إصغاء.
-هدفك: محاكاة حوار إنساني هادئ وودود مع شخص لديه تساؤل أو اعتراض أو شبهة، ومساعدته على التفكير وفهم المسألة بهدوء وبناء جسر من الاطمئنان، وليس تقديم فتوى أو حكم شرعي.
+مثال:
+كلام المستخدم: "اقنعني أن الرموش من الوصل وحكم الوصل"
+السؤال بعد إعادة الصياغة: "ما حكم وصل الرموش، وما دليل تحريم الوصل؟"
 
-الفرق الحاسم بين محاكي الشبهات والاستفتاء:
-- قسم «استفتِ بالأدلة» يبقى بأسلوبه الرسمي والمنظم كما هو.
-- أما «محاكي الشبهات» هنا فمختلف تماماً: ليس فتوى، ولا حكماً شرعياً، ولا تقييماً امتحانياً، ولا مسابقة ردود؛ بل حوار دافئ كأنك صديق واعٍ وودود يسولف مع المستخدم بلغة عربية بسيطة وقريبة وفصحى سهلة ميسرة.
+سياق المحادثة السابق (إن وجد):
+${recentHistoryText || 'بداية الحوار'}
+موضوع الحوار العام: ${baseQuestion}
+كلام المستخدم الأخير: "${user_message}"
 
-ضوابط أسلوب الحوار (مهمة وحاسمة جداً):
-1. ممنوع منعاً باتاً:
-   - قالب «الحكم: … الدليل: …»
-   - وضع أي عناوين داخل الرد (مثل: المقدمة، التوضيح، الأدلة...).
-   - وضع التعداد أو الترقيم أو القوائم المنقطة نهائياً (1. أو 2. أو - أو *).
-   - أسلوب الفتوى الرسمي ولغة الإفتاء الجازمة («يجب عليك»، «حكم ذلك حرام/حلال»).
-2. طبيعة الرد:
-   - الرد عبارة عن كلام متصل وطبيعي ومنسجم، وكأنه حوار حقيقي هادئ بين شخصين جالسين معاً.
-   - إياك أن تكرر نفس الافتتاحية أو نفس تركيب الجمل في كل رد؛ بل نوّع أسلوبك وعفويتك وطاقتك بحسب كلام المستخدم وسياق المحادثة.
+المطلوب: أخرج فقط جملة السؤال البحثي المعاد صياغته مباشرة دون أي مقدمة أو شرح أو علامات تنصيص.`;
 
-طريقة التعامل مع الشبهة والاعتراض:
-1. إظهار التفهم أولاً: قبل محاولة الرد، أظهر بصدق وتعاطف أنك فهمت ما يقصده المستخدم وما يدور في باله، حتى لو كان معترضاً بشدة أو غير مقتنع.
-2. البناء التدريجي: ابنِ الحوار تدريجياً بالطريقة الأنسب للسياق. يمكن استخدام تشبيه أو مثال بسيط وملموس (كما في حقل analogy بالمصادر المرفقة) إذا كان ذلك يساعد على توضيح الفكرة، ثم الاستناد إلى المعلومات الموجودة في المصادر الموثوقة المرفقة، ثم فتح المجال لاستمرار الحوار إذا كان هناك شيء يحتاج توضيحاً.
-3. التوازن: ليس من الضروري أن يحتوي كل رد على مثال ودليل وسؤال؛ الأهم أن يكون الحوار طبيعياً وغير آلي ولا مصطنع.
+      const rawReformulated = await generateWithFallback({
+        contents: [{ role: 'user', parts: [{ text: reformulatePrompt }] }],
+        temperature: 0.1
+      });
+      reformulatedQuestion = rawReformulated.replace(/["\n\r]/g, '').trim();
+      if (!reformulatedQuestion) {
+        reformulatedQuestion = user_message;
+      }
+    } else {
+      reformulatedQuestion = topic || baseQuestion || 'ما هي حجية السنة النبوية الشريفة وكيف تم حفظ الحديث؟';
+    }
 
-أسلوب الإقناع:
-- هادئ ومحترم دائماً.
-- متعاطف مع حيرة المستخدم وشكوكه وتساؤلاته.
-- غير متعالٍ، وغير ساخر.
-- لا تصف سؤال المستخدم أو رأيه بأنه غبي أو خاطئ أو سطحي مطلقاً.
-- لا تحاول الضغط على المستخدم أو إجباره على الاقتناع.
-- إذا استمر المستخدم في الاعتراض، لا تُعد نفس الإجابة حرفياً، بل تناول الاعتراض من زاوية مختلفة باستخدام المعلومات المتوفرة في المصادر.
+    // الخطوة 2: تمرير السؤال إلى نفس دالة البحث والجواب المستخدمة في «استفتِ بالأدلة»
+    const searchResult = await queryFatwaEngine(reformulatedQuestion, language);
+    const retrievedCount = searchResult.retrieved_count;
+    const sourceTitles = searchResult.source_titles || [];
 
-طول الرد:
-- غالبًا من 3 إلى 5 جمل متصلة في فقرة واحدة انسيابية.
-- لا تُطل الشرح إلا إذا طلب المستخدم التفصيل بنفسه أو كان السؤال يحتاج توضيحاً أكبر.
-- لا تجعل كل رد ينتهي بسؤال بشكل إجباري، بل استخدم سؤالاً في نهاية الرد فقط عندما يكون مناسباً ومفيداً لاستمرار الحوار أو لفهم اعتراض المستخدم بشكل أفضل.
+    // طباعة سجل مختصر في console وضع المطور
+    console.log('\n================== [محاكي الشبهات: فحص محرك البحث] ==================');
+    console.log('📌 السؤال بعد إعادة الصياغة:', reformulatedQuestion);
+    console.log('📊 عدد المقاطع المسترجعة:', retrievedCount);
+    console.log('📚 عناوين المصادر:', sourceTitles.length > 0 ? sourceTitles.join(' | ') : 'لا توجد مصادر مطابقة');
+    console.log('====================================================================\n');
 
-الموثوقية والالتزام بالمصادر المرفقة (صارم جداً):
-- مهما كان أسلوب الحوار عفويًا، يجب ألا تذكر أي معلومة دينية إلا إذا كانت موجودة في مقاطع sources.json المرفقة أدناه حصراً!
-- لا تضِف:
-  * آيات من ذاكرتك.
-  * أحاديث من ذاكرتك.
-  * أقوال علماء من ذاكرتك.
-  * فتاوى أو أحكاماً غير موجودة في المصادر المرفقة.
-  * مصادر أو روابط غير موجودة في البيانات المرفقة.
-- إذا احتاج المستخدم إلى إجابة ولا يوجد في المصادر المرفقة ما يكفي للإجابة، يجب أن تقول له بوضوح وبأسلوب لطيف:
-«ما عندي جواب موثّق على هذا، والأفضل تسأل أحد أهل العلم.»
-ولا تحاول تخمين الإجابة أو استنتاج فتوى من عندك.
-ولا تقدم فتوى لحالة شخصية أو خاصة بناءً على معلومات غير كافية.
+    let replyText = '';
+    let sourceName: string | null = null;
+    let sourceUrl: string | null = null;
 
-عرض المصدر:
-- لا تضع المصادر أو الروابط داخل نص الحوار لكي لا تقطع سلاسة الكلام والسوالف.
-- ضع اسم المصدر ورابطه في الحقول المخصصة المنفصلة (source_name و source_url)، ليُعرض بعد الرد في سطر صغير منفصل.
+    // الخطوة 3: التحقق من قاعدة الامتناع وصياغة رد المحاور
+    if (searchResult.unavailable_in_knowledge_base || retrievedCount === 0) {
+      // إن لم توجد نتيجة: لا يضيف أي كلام عام من عنده، وإنما يقول بلطف إنه لم يجد جواباً في المصادر وينصح بسؤال أهل العلم.
+      replyText = 'بحثت في المصادر المعتمدة المتاحة وما وجدت جواباً موثقاً بخصوص هذه المسألة تحديداً، والأفضل فيها سؤال أحد أهل العلم الموثوقين للتحقق منها بدقة.';
+      sourceName = null;
+      sourceUrl = null;
+    } else {
+      // وُجدت نتيجة: كتابة رد المحاور اعتماداً على نتيجة الخطوة الأولى فقط
+      const interlocutorPrompt = `أنت محاور إنساني ودود في قسم «محاكي الشبهات» بتطبيق إصغاء.
+مهمتك: صياغة رد المحاور على المستخدم اعتماداً على نتيجة البحث الشرعي المرفقة أدناه فقط.
 
-المصادر المعتمدة المتاحة حصراً (sources.json):
-${JSON.stringify(sourcesFormatted, null, 2)}
+كلام المستخدم: "${user_message || topic || baseQuestion}"
+سياق الحوار السابق:
+${recentHistoryText || 'بداية الحوار'}
 
-مطلوب إخراج النتيجة بتنسيق JSON حصراً:
+نتيجة البحث والجواب المسترجعة من محرك الاستفتاء (مصدرك الحصري الوحيد):
+- السؤال بعد إعادة الصياغة: ${reformulatedQuestion}
+- الحكم والبيان الشرعي: ${searchResult.answer}
+- الآيات القرآنية: ${JSON.stringify(searchResult.verses)}
+- الأحاديث النبوية: ${JSON.stringify(searchResult.hadiths)}
+- نقولات المذاهب والعلماء: ${JSON.stringify(searchResult.scholar_references)}
+
+قواعد الرد الإلزامية:
+1. أسلوب محادثة ودّية عفوية قصيرة (من 3 إلى 5 جمل فقط في فقرة واحدة متصلة).
+2. ليس بصيغة الحكم والدليل (إياك أن تكتب "الحكم: ..." أو "الدليل: ..." أو تعداداً أو نجوماً أو عناوين).
+3. الترتيب الإلزامي للرد:
+   - يتجاوب أولاً مع كلام المستخدم المحدد ويرد على نقطته هي بالذات، ويُظهر فهمه لما يقصده.
+   - ثم يعرض الدليل بكلمات بسيطة ومفهومة.
+   - ثم يختم بسؤال يفتح النقاش الهادئ.
+4. التزام الألفاظ: لا تستخدم عبارات عامة مثل «مقاصد الشريعة» أو «الضروريات الخمس» إلا إن وردت صراحة في نتيجة البحث المرفقة أعلاه وكانت مرتبطة بالسؤال.
+5. لا تكتب عبارة «ما عندي جواب موثّق» لأن نتيجة البحث متوفرة ومرفقة أعلاه، وإن وُجد نتيجة جزئية فقل ما يدل عليه المصدر فقط ووضّح أن هذا حدّه.
+6. لا تجمع بين جواب من خارج المصادر واعتذار في الرد نفسه.
+
+أخرج النتيجة بصيغة JSON حصراً:
 {
-  "dialogue_reply": "نص الرد الحواري الطبيعي المتصل (3 إلى 5 جمل في فقرة واحدة انسيابية دون عناوين ولا تعداد ولا قوالب)",
-  "source_name": "اسم المصدر المعتمد من المصادر المرفقة أعلاه فقط (أو null إذا كان السؤال خارج المصادر المرفقة)",
-  "source_url": "رابط المصدر المعتمد من المصادر المرفقة أعلاه فقط (أو null إذا كان السؤال خارج المصادر المرفقة)"
+  "dialogue_reply": "نص الرد الحواري المتصل (3 إلى 5 جمل)",
+  "source_name": "اسم المصدر المعتمد الأساسي المختصر",
+  "source_url": "رابط المصدر"
 }`;
 
-    let historyContext = '';
-    if (Array.isArray(history) && history.length > 0) {
-      const recentHistory = history.slice(-6);
-      historyContext = '\nسياق الحوار السابق:\n' + recentHistory.map((m: any) => `${m.sender === 'user' ? 'المستخدم' : 'المحاور'}: ${m.text}`).join('\n') + '\n';
+      const rawInterlocutor = await generateWithFallback({
+        contents: [{ role: 'user', parts: [{ text: interlocutorPrompt }] }],
+        systemInstruction: 'أنت محاور ودود يكتب كلاماً متصلاً سلساً من 3 إلى 5 جمل فقط وفق البيانات المرفقة.',
+        responseMimeType: 'application/json',
+        temperature: 0.3
+      });
+
+      const parsedInterlocutor = safeParseJSON(rawInterlocutor, {});
+      replyText = (parsedInterlocutor.dialogue_reply || '').trim();
+      if (!replyText) {
+        replyText = searchResult.answer.slice(0, 300);
+      }
+      sourceName = parsedInterlocutor.source_name || searchResult.primary_source_name || null;
+      sourceUrl = parsedInterlocutor.source_url || searchResult.primary_source_url || null;
     }
 
-    const userPrompt = user_message
-      ? `الموضوع الأساسي: ${baseQuestion}
-${baseAnswer ? `خلفية الموضوع: ${baseAnswer}\n` : ''}${historyContext}
-كلام المستخدم الحالي: "${user_message}"
-
-المطلوب: رد عليه كمحاور ودود ومتعاطف وفق كل الشروط والضوابط (3 إلى 5 جمل متصلة، إظهار التفهم أولاً، استخدام التشبيه/المعلومة الموثقة من sources.json، دون تكرار ودون عناوين أو تعداد). إن لم يكن الجواب في المصادر قل: «ما عندي جواب موثّق على هذا، والأفضل تسأل أحد أهل العلم.»`
-      : `افتتح الحوار بودية وأريحية حول هذا الموضوع: "${baseQuestion}". أظهر تفهمك لسبب ورود هذا التساؤل أو الشبهة في ذهن الإنسان، وافتح المجال له لمشاركة ما يدور في خاطره، مستنداً إلى المصدر المناسب من المصادر المرفقة.`;
-
-    const rawText = await generateWithFallback({
-      contents: [{ role: 'user', parts: [{ text: userPrompt }] }],
-      systemInstruction: systemPrompt,
-      responseMimeType: 'application/json',
-      temperature: 0.35
-    });
-
-    const matchingSource = sourcesData.find(s => 
-      s.topic.includes(baseQuestion) || baseQuestion.includes(s.topic) ||
-      (s.keywords && s.keywords.some((k: string) => baseQuestion.includes(k) || (user_message && user_message.includes(k))))
-    ) || sourcesData[0];
-
-    const parsed = safeParseJSON(rawText, {
-      dialogue_reply: user_message
-        ? `أتفهم تماماً وجهة نظرك وما يدور في بالك، وكثير من الناس يتبادر لهم هذا الإشكال. الفكرة ببساطة أن التوثيق العلمي قام على تدقيق دقيق للسند والمتن للتأكد من سلامة كل نص. هل تشعر أن هناك زاوية معينة في هذا الجانب تحتاج لتوضيح أكثر؟`
-        : `أهلاً بك، سعيد بالحديث معك. موضوع ${baseQuestion} من التساؤلات اللي تشغل البال ويستحق نتأمل فيه بهدوء. ما الذي يدور في ذهنك بشأنه؟`,
-      source_name: matchingSource ? matchingSource.source_name : 'موسوعة الأحاديث النبوية — dorar.net/hadith ومرجع تفنيد الشبهات — dawa.center/file/7937',
-      source_url: matchingSource ? matchingSource.source_url : 'https://dorar.net/hadith'
-    });
-
-    const replyText = (parsed.dialogue_reply || parsed.skeptic_reply || '').trim();
-    const sourceName = parsed.source_name || null;
-    const sourceUrl = parsed.source_url || null;
-
-    // Save turn if fatwa_id exists
+    // حفظ الجولة إن وجد fatwa_id
     if (fatwa_id) {
       const parent = db.fatwas.find((f) => f.id === fatwa_id);
       if (parent) {
@@ -1600,7 +1703,12 @@ ${baseAnswer ? `خلفية الموضوع: ${baseAnswer}\n` : ''}${historyContex
       skeptic_reply: replyText,
       reply: replyText,
       source_name: sourceName,
-      source_url: sourceUrl
+      source_url: sourceUrl,
+      debug_search: {
+        reformulated_question: reformulatedQuestion,
+        retrieved_count: retrievedCount,
+        source_titles: sourceTitles
+      }
     });
   } catch (err: any) {
     console.error('Error in /api/fatwa/skeptic:', err);

@@ -3,11 +3,11 @@ import { Extraction, FatwaRecord, FactVerificationResult } from './types';
 const API_BASE = '/api';
 
 async function handleResponse<T>(res: Response): Promise<T> {
+  const text = await res.text();
   if (!res.ok) {
-    const errorText = await res.text();
     let msg = `الخدمة تواجه ضغطاً مؤقتاً (رمز ${res.status})، يرجى المحاولة بعد قليل.`;
     try {
-      const parsed = JSON.parse(errorText);
+      const parsed = JSON.parse(text);
       if (typeof parsed.error === 'string') {
         msg = parsed.error;
       } else if (parsed.error && typeof parsed.error === 'object') {
@@ -24,13 +24,23 @@ async function handleResponse<T>(res: Response): Promise<T> {
         msg = parsed.message;
       }
     } catch {
-      if (errorText && errorText.length < 200) {
-        msg = errorText;
+      if (text && text.length < 200 && !text.includes('<html')) {
+        msg = text;
       }
     }
     throw new Error(msg);
   }
-  return res.json();
+
+  if (!text || !text.trim()) {
+    return {} as T;
+  }
+
+  try {
+    return JSON.parse(text) as T;
+  } catch (err) {
+    console.error('Safe JSON parse failed on response:', text.slice(0, 200));
+    throw new Error('حدث خطأ في معالجة استجابة الخادم، يرجى إعادة المحاولة.');
+  }
 }
 
 export async function getHistory(): Promise<{ extractions: Extraction[]; fatwas: FatwaRecord[] }> {
@@ -178,6 +188,11 @@ export async function skepticTurn(
   reply?: string;
   source_name?: string;
   source_url?: string;
+  debug_search?: {
+    reformulated_question: string;
+    retrieved_count: number;
+    source_titles: string[];
+  };
   evaluation?: any;
 }> {
   const res = await fetch(`${API_BASE}/fatwa/skeptic`, {

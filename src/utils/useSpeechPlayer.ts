@@ -143,7 +143,7 @@ export function useSpeechPlayer(): UseSpeechPlayerReturn {
     const voice = selectedVoiceRef.current;
     if (voice) {
       utterance.voice = voice;
-      utterance.lang = voice.lang || 'ar-SA';
+      utterance.lang = voice.lang ? voice.lang.replace('_', '-') : 'ar-SA';
     } else {
       utterance.lang = 'ar-SA';
     }
@@ -171,7 +171,11 @@ export function useSpeechPlayer(): UseSpeechPlayerReturn {
       }
     };
 
-    window.speechSynthesis.speak(utterance);
+    try {
+      window.speechSynthesis.speak(utterance);
+    } catch (err) {
+      console.warn('[TTS speak exception ignored]', err);
+    }
   }, [stop]);
 
   const play = useCallback(async (text: string) => {

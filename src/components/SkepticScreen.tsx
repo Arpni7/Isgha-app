@@ -65,6 +65,20 @@ export const SkepticScreen: React.FC<SkepticScreenProps> = ({
         await skepticReset(fatwaId);
       }
       const res = await skepticTurn(fatwaId, '', targetTopic, lang);
+      if (res.debug_search) {
+        console.log(
+          '%c[محاكي الشبهات - وضع المطور]',
+          'background: #064e3b; color: #fff; font-weight: bold; padding: 2px 6px; border-radius: 4px;'
+        );
+        console.log('📌 السؤال بعد إعادة الصياغة:', res.debug_search.reformulated_question);
+        console.log('📊 عدد المقاطع المسترجعة:', res.debug_search.retrieved_count);
+        console.log(
+          '📚 عناوين المصادر:',
+          res.debug_search.source_titles && res.debug_search.source_titles.length > 0
+            ? res.debug_search.source_titles
+            : ['لا توجد مصادر مطابقة']
+        );
+      }
       setChat([
         {
           sender: 'skeptic',
@@ -98,6 +112,21 @@ export const SkepticScreen: React.FC<SkepticScreenProps> = ({
     try {
       const history = newChat.map((m) => ({ sender: m.sender, text: m.text }));
       const res = await skepticTurn(fatwaId, messageToSend, topic, lang, history);
+
+      if (res.debug_search) {
+        console.log(
+          '%c[محاكي الشبهات - وضع المطور]',
+          'background: #064e3b; color: #fff; font-weight: bold; padding: 2px 6px; border-radius: 4px;'
+        );
+        console.log('📌 السؤال بعد إعادة الصياغة:', res.debug_search.reformulated_question);
+        console.log('📊 عدد المقاطع المسترجعة:', res.debug_search.retrieved_count);
+        console.log(
+          '📚 عناوين المصادر:',
+          res.debug_search.source_titles && res.debug_search.source_titles.length > 0
+            ? res.debug_search.source_titles
+            : ['لا توجد مصادر مطابقة']
+        );
+      }
 
       if (res.skeptic_reply) {
         setChat([
@@ -206,10 +235,22 @@ export const SkepticScreen: React.FC<SkepticScreenProps> = ({
                     : 'bg-white border border-slate-200/90 text-slate-800 rounded-ts-none shadow-xs'
                 }`}
               >
-                <div className="flex items-center justify-between pb-1.5 mb-2 border-b border-white/10 rtl:border-slate-100 text-[11px] font-semibold opacity-75">
+                <div
+                  className={`flex items-center justify-between pb-1.5 mb-2 border-b text-[11px] font-semibold ${
+                    msg.sender === 'user'
+                      ? 'border-emerald-700/60 text-emerald-100'
+                      : 'border-slate-100 text-slate-500'
+                  }`}
+                >
                   <span>{msg.sender === 'user' ? t('user_name') : `${t('skeptic_name')} — حوار ودود`}</span>
                 </div>
-                <p className="whitespace-pre-line font-normal leading-relaxed text-slate-800">
+                <p
+                  className={`whitespace-pre-line leading-relaxed ${
+                    msg.sender === 'user'
+                      ? 'text-white font-medium'
+                      : 'text-slate-800 font-normal'
+                  }`}
+                >
                   {msg.text}
                 </p>
 
