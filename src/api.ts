@@ -171,12 +171,19 @@ export async function skepticTurn(
   fatwa_id?: string,
   user_message?: string,
   topic?: string,
-  language = 'ar'
-): Promise<{ skeptic_reply: string; evaluation?: any }> {
+  language = 'ar',
+  history?: Array<{ sender: 'skeptic' | 'user'; text: string }>
+): Promise<{
+  skeptic_reply: string;
+  reply?: string;
+  source_name?: string;
+  source_url?: string;
+  evaluation?: any;
+}> {
   const res = await fetch(`${API_BASE}/fatwa/skeptic`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ fatwa_id, user_message, topic, language }),
+    body: JSON.stringify({ fatwa_id, user_message, topic, language, history }),
   });
   return handleResponse(res);
 }

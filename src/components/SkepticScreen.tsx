@@ -5,25 +5,20 @@ import {
   ShieldCheck,
   Send,
   Loader2,
-  Sparkles,
   ArrowRight,
   ArrowLeft,
-  Lightbulb,
-  CheckCircle,
-  HelpCircle,
   RotateCcw,
   User,
-  AlertCircle
+  AlertCircle,
+  ExternalLink,
+  MessageCircleHeart
 } from 'lucide-react';
 
 interface SkepticMessage {
   sender: 'skeptic' | 'user';
   text: string;
-  feedback?: string;
-  rating?: string;
-  strengths?: string[];
-  missing_points?: string[];
-  hint?: string;
+  source_name?: string;
+  source_url?: string;
 }
 
 interface SkepticScreenProps {
@@ -33,7 +28,7 @@ interface SkepticScreenProps {
 }
 
 export const SkepticScreen: React.FC<SkepticScreenProps> = ({
-  initialTopic = 'أهمية وحجية السنة النبوية وكيفية حفظ الأحاديث',
+  initialTopic = 'أهمية وحجية السنة النبوية الشريفة وتدوينها',
   fatwaId,
   onBack,
 }) => {
@@ -42,15 +37,17 @@ export const SkepticScreen: React.FC<SkepticScreenProps> = ({
   const [chat, setChat] = useState<SkepticMessage[]>([]);
   const [userInput, setUserInput] = useState('');
   const [loading, setLoading] = useState(false);
-  const [showHint, setShowHint] = useState(false);
-  const [currentHint, setCurrentHint] = useState('');
   const [error, setError] = useState('');
 
   const sampleTopics = [
     'أهمية وحجية السنة النبوية الشريفة وتدوينها',
-    'الحكمة من صيام عاشوراء ومخالفة أهل الكتاب',
-    'أحكام التيمم ورخصة المسافر في الصلاة',
-    'منهج نقد الرواة وتصحيح الأحاديث عند المحدثين'
+    'الحكمة من خلق الابتلاءات والآلام في الدنيا',
+    'القدر وحرية الإنسان بين التسيير والتخيير',
+    'موقف الإسلام من التساؤل والبحث عن اليقين',
+    'الحكمة من صيام عاشوراء وتكفير الذنوب',
+    'أحكام التيمم ورخصة المسافر في العبادات',
+    'مقاصد الرحمة والتعايش وحسن الخلق',
+    'حكمة التشريع ومقاصد الشريعة الإسلامية'
   ];
 
   // Initiate initial turn on mount
@@ -62,8 +59,6 @@ export const SkepticScreen: React.FC<SkepticScreenProps> = ({
     setLoading(true);
     setError('');
     setChat([]);
-    setCurrentHint('');
-    setShowHint(false);
 
     try {
       if (fatwaId) {
@@ -73,14 +68,13 @@ export const SkepticScreen: React.FC<SkepticScreenProps> = ({
       setChat([
         {
           sender: 'skeptic',
-          text: res.skeptic_reply || 'ما هو دليلك على صحة هذا الحكم وثبوته عبر القرون؟'
+          text: res.skeptic_reply || 'أهلاً بك، سعيد بالحوار معك حول هذا الموضوع بكل هدوء وتفهم. ما الذي يدور في خاطرك بشأنه؟',
+          source_name: res.source_name,
+          source_url: res.source_url
         }
       ]);
-      if (res.evaluation?.hint) {
-        setCurrentHint(res.evaluation.hint);
-      }
     } catch (err: any) {
-      setError(err.message || 'تعذر تشغيل المحاكي');
+      setError(err.message || 'تعذر بدء الحوار، يرجى المحاولة ثانية');
     } finally {
       setLoading(false);
     }
@@ -102,35 +96,22 @@ export const SkepticScreen: React.FC<SkepticScreenProps> = ({
     setChat(newChat);
 
     try {
-      const res = await skepticTurn(fatwaId, messageToSend, topic, lang);
-
-      // Attach feedback to the user's turn
-      const updatedChat = [...newChat];
-      const lastUserIdx = updatedChat.length - 1;
-      if (res.evaluation) {
-        updatedChat[lastUserIdx] = {
-          ...updatedChat[lastUserIdx],
-          feedback: res.evaluation.feedback,
-          rating: res.evaluation.rating,
-          strengths: res.evaluation.strengths,
-          missing_points: res.evaluation.missing_points,
-          hint: res.evaluation.hint
-        };
-        if (res.evaluation.hint) {
-          setCurrentHint(res.evaluation.hint);
-        }
-      }
+      const history = newChat.map((m) => ({ sender: m.sender, text: m.text }));
+      const res = await skepticTurn(fatwaId, messageToSend, topic, lang, history);
 
       if (res.skeptic_reply) {
-        updatedChat.push({
-          sender: 'skeptic',
-          text: res.skeptic_reply
-        });
+        setChat([
+          ...newChat,
+          {
+            sender: 'skeptic',
+            text: res.skeptic_reply,
+            source_name: res.source_name,
+            source_url: res.source_url
+          }
+        ]);
       }
-
-      setChat(updatedChat);
     } catch (err: any) {
-      setError(err.message || 'تعذر استلام رد المتشكك');
+      setError(err.message || 'تعذر استلام رد المحاور');
     } finally {
       setLoading(false);
     }
@@ -164,17 +145,17 @@ export const SkepticScreen: React.FC<SkepticScreenProps> = ({
       </div>
 
       {/* Simulator Banner */}
-      <div className="p-4 bg-amber-50/70 rounded-xl border border-amber-200/70 text-xs text-amber-950/90 leading-relaxed flex items-start gap-3">
-        <ShieldCheck className="w-5 h-5 text-amber-700 shrink-0 mt-0.5" />
+      <div className="p-4 bg-emerald-50/70 rounded-xl border border-emerald-200/70 text-xs text-emerald-950/90 leading-relaxed flex items-start gap-3">
+        <ShieldCheck className="w-5 h-5 text-emerald-700 shrink-0 mt-0.5" />
         <div className="space-y-1">
-          <span className="font-bold block">{t('skeptic_title')}</span>
-          <p>{t('skeptic_banner')}</p>
+          <span className="font-bold block text-emerald-950">{t('skeptic_title')}</span>
+          <p className="text-emerald-900/90">{t('skeptic_banner')}</p>
         </div>
       </div>
 
       {/* Topic Selector */}
       <div className="bg-white p-4 rounded-xl border border-slate-200/90 space-y-2">
-        <span className="text-xs font-bold text-slate-700 block">موضوع المحاكاة والحوار:</span>
+        <span className="text-xs font-bold text-slate-700 block">اختر موضوعاً للحوار أو اكتب ما يدور في خاطرك بالأسفل:</span>
         <div className="flex flex-wrap gap-1.5">
           {sampleTopics.map((st, i) => (
             <button
@@ -185,7 +166,7 @@ export const SkepticScreen: React.FC<SkepticScreenProps> = ({
               }}
               className={`text-xs px-2.5 py-1 rounded-md border transition-colors cursor-pointer ${
                 topic === st
-                  ? 'border-emerald-700 bg-emerald-50 text-emerald-900 font-semibold'
+                  ? 'border-emerald-700 bg-emerald-50 text-emerald-900 font-semibold shadow-2xs'
                   : 'border-slate-200 bg-slate-50 hover:bg-slate-100 text-slate-600'
               }`}
             >
@@ -203,9 +184,9 @@ export const SkepticScreen: React.FC<SkepticScreenProps> = ({
       )}
 
       {/* Dialogue Thread */}
-      <div className="space-y-6">
+      <div className="space-y-5">
         {chat.map((msg, idx) => (
-          <div key={idx} className="space-y-3">
+          <div key={idx} className="space-y-2">
             {/* Message Bubble */}
             <div
               className={`flex items-start gap-3 ${
@@ -213,22 +194,44 @@ export const SkepticScreen: React.FC<SkepticScreenProps> = ({
               }`}
             >
               {msg.sender === 'skeptic' && (
-                <div className="w-8 h-8 rounded-full bg-amber-100 text-amber-800 flex items-center justify-center font-bold text-xs shrink-0 border border-amber-200">
-                  ش
+                <div className="w-8 h-8 rounded-full bg-emerald-100 text-emerald-800 flex items-center justify-center font-bold text-xs shrink-0 border border-emerald-200 shadow-2xs">
+                  <MessageCircleHeart className="w-4 h-4 text-emerald-700" />
                 </div>
               )}
 
               <div
                 className={`max-w-2xl p-4 sm:p-5 rounded-2xl text-sm leading-relaxed ${
                   msg.sender === 'user'
-                    ? 'bg-emerald-900 text-white rounded-te-none'
+                    ? 'bg-emerald-900 text-white rounded-te-none shadow-xs'
                     : 'bg-white border border-slate-200/90 text-slate-800 rounded-ts-none shadow-xs'
                 }`}
               >
-                <div className="flex items-center justify-between pb-1.5 mb-1.5 border-b border-white/10 rtl:border-slate-100 text-[11px] font-semibold opacity-75">
-                  <span>{msg.sender === 'user' ? t('user_name') : t('skeptic_name')}</span>
+                <div className="flex items-center justify-between pb-1.5 mb-2 border-b border-white/10 rtl:border-slate-100 text-[11px] font-semibold opacity-75">
+                  <span>{msg.sender === 'user' ? t('user_name') : `${t('skeptic_name')} — حوار ودود`}</span>
                 </div>
-                <p className="whitespace-pre-line font-medium">{msg.text}</p>
+                <p className="whitespace-pre-line font-normal leading-relaxed text-slate-800">
+                  {msg.text}
+                </p>
+
+                {/* Clean Separate Source Line */}
+                {msg.sender === 'skeptic' && msg.source_name && (
+                  <div className="pt-2.5 mt-3 border-t border-slate-100 flex items-center flex-wrap gap-1.5 text-xs text-slate-500 font-normal">
+                    <span className="text-[11px] font-semibold text-slate-600">المصدر:</span>
+                    {msg.source_url ? (
+                      <a
+                        href={msg.source_url}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="text-emerald-700 hover:text-emerald-800 hover:underline inline-flex items-center gap-1 text-[11px] font-medium"
+                      >
+                        <span>{msg.source_name}</span>
+                        <ExternalLink className="w-3 h-3 shrink-0" />
+                      </a>
+                    ) : (
+                      <span className="text-[11px] text-slate-600">{msg.source_name}</span>
+                    )}
+                  </div>
+                )}
               </div>
 
               {msg.sender === 'user' && (
@@ -237,82 +240,21 @@ export const SkepticScreen: React.FC<SkepticScreenProps> = ({
                 </div>
               )}
             </div>
-
-            {/* Pedagogical Evaluation Panel for User Response */}
-            {msg.sender === 'user' && msg.feedback && (
-              <div className="ms-11 max-w-2xl p-4 rounded-xl bg-slate-100 border border-slate-200 space-y-3 text-xs animate-in fade-in duration-300">
-                <div className="flex items-center justify-between pb-2 border-b border-slate-200">
-                  <span className="font-bold text-slate-900 flex items-center gap-1.5">
-                    <Sparkles className="w-3.5 h-3.5 text-amber-600" />
-                    <span>{t('eval_title')}</span>
-                  </span>
-                  {msg.rating && (
-                    <span className="px-2 py-0.5 rounded bg-emerald-100 text-emerald-900 font-bold">
-                      {msg.rating}
-                    </span>
-                  )}
-                </div>
-
-                <p className="text-slate-700 leading-relaxed">{msg.feedback}</p>
-
-                {msg.strengths && msg.strengths.length > 0 && (
-                  <div className="space-y-1">
-                    <span className="font-bold text-emerald-900 block">{t('strengths_label')}</span>
-                    <ul className="list-disc list-inside space-y-0.5 text-slate-600">
-                      {msg.strengths.map((s, i) => (
-                        <li key={i}>{s}</li>
-                      ))}
-                    </ul>
-                  </div>
-                )}
-
-                {msg.missing_points && msg.missing_points.length > 0 && (
-                  <div className="space-y-1">
-                    <span className="font-bold text-amber-900 block">{t('missing_label')}</span>
-                    <ul className="list-disc list-inside space-y-0.5 text-slate-600">
-                      {msg.missing_points.map((m, i) => (
-                        <li key={i}>{m}</li>
-                      ))}
-                    </ul>
-                  </div>
-                )}
-              </div>
-            )}
           </div>
         ))}
 
         {loading && (
           <div className="flex items-center gap-3">
-            <div className="w-8 h-8 rounded-full bg-amber-100 text-amber-800 flex items-center justify-center font-bold text-xs shrink-0 border border-amber-200">
-              ش
+            <div className="w-8 h-8 rounded-full bg-emerald-100 text-emerald-800 flex items-center justify-center font-bold text-xs shrink-0 border border-emerald-200">
+              <MessageCircleHeart className="w-4 h-4 text-emerald-700" />
             </div>
             <div className="p-4 rounded-2xl bg-white border border-slate-200 text-slate-500 text-xs flex items-center gap-2 shadow-xs">
-              <Loader2 className="w-4 h-4 animate-spin text-amber-600" />
+              <Loader2 className="w-4 h-4 animate-spin text-emerald-600" />
               <span>{t('skeptic_thinking')}</span>
             </div>
           </div>
         )}
       </div>
-
-      {/* Hint toggle box */}
-      {currentHint && (
-        <div className="p-3 bg-amber-50/60 rounded-xl border border-amber-200/50 flex flex-col gap-2">
-          <div className="flex items-center justify-between">
-            <button
-              onClick={() => setShowHint(!showHint)}
-              className="text-xs font-bold text-amber-900 flex items-center gap-1.5 hover:underline cursor-pointer"
-            >
-              <Lightbulb className="w-3.5 h-3.5 text-amber-600" />
-              <span>{showHint ? t('hide_hint') : t('show_hint')}</span>
-            </button>
-          </div>
-          {showHint && (
-            <p className="text-xs text-amber-950/90 leading-relaxed pt-1 border-t border-amber-200/40">
-              💡 {currentHint}
-            </p>
-          )}
-        </div>
-      )}
 
       {/* User Reply Input Area */}
       <div className="bg-white p-4 rounded-2xl border border-slate-200/90 shadow-xs space-y-3">
@@ -331,7 +273,7 @@ export const SkepticScreen: React.FC<SkepticScreenProps> = ({
 
         <div className="flex items-center justify-between">
           <span className="text-[11px] text-slate-400">
-            اضغط Ctrl + Enter أو زر الإرسال
+            اضغط Ctrl + Enter أو زر الإرسال للمحاورة
           </span>
           <button
             onClick={handleSendReply}

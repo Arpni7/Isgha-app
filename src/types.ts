@@ -69,6 +69,8 @@ export interface FatwaRecord {
   skepticChat?: Array<{
     sender: 'skeptic' | 'user';
     text: string;
+    source_name?: string;
+    source_url?: string;
     feedback?: string;
     rating?: string;
     strengths?: string[];

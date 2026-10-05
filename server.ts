@@ -165,6 +165,8 @@ export interface FatwaRecord {
   skepticChat?: Array<{
     sender: 'skeptic' | 'user';
     text: string;
+    source_name?: string;
+    source_url?: string;
     feedback?: string;
     rating?: string;
     strengths?: string[];
@@ -1430,10 +1432,10 @@ Return strictly JSON:
   }
 });
 
-// 9. Skeptic Simulator Turn
+// 9. Skeptic Simulator Turn (محاكي الشبهات — حوار إنساني ودود وموثوق)
 app.post('/api/fatwa/skeptic', async (req: Request, res: Response) => {
   try {
-    const { fatwa_id, user_message, topic, language = 'ar' } = req.body;
+    const { fatwa_id, user_message, topic, language = 'ar', history = [] } = req.body;
     let baseQuestion = topic || '';
     let baseAnswer = '';
 
@@ -1446,66 +1448,130 @@ app.post('/api/fatwa/skeptic', async (req: Request, res: Response) => {
     }
 
     if (!baseQuestion) {
-      baseQuestion = 'أحكام الصيام والشعائر الدينية ومكانة السنة النبوية';
+      baseQuestion = 'أهمية وحجية السنة النبوية الشريفة وتدوينها';
     }
 
-    const systemPrompt = `You are an educational Islamic debate and dialogue simulator called "محاكي الشبهات" (Skeptic Simulator).
-Your goal is to train students of knowledge and Muslims on how to articulate rational, compassionate, and evidence-backed answers to tough doubts and common objections raised against Islamic teachings.
+    // Load sources.json
+    const sourcesFilePath = path.join(__dirname, 'src/data/sources.json');
+    let sourcesData: any[] = [];
+    try {
+      if (fs.existsSync(sourcesFilePath)) {
+        sourcesData = JSON.parse(fs.readFileSync(sourcesFilePath, 'utf-8'));
+      }
+    } catch (e) {
+      console.error('Error reading sources.json in skeptic simulator:', e);
+    }
 
-${APPROVED_SOURCES_REGULATION}
+    const sourcesFormatted = sourcesData.map((s) => ({
+      id: s.id,
+      topic: s.topic,
+      keywords: s.keywords,
+      understanding: s.understanding,
+      analogy: s.analogy,
+      core_content: s.core_content,
+      source_name: s.source_name,
+      source_url: s.source_url
+    }));
 
-PRIMARY DEBATE AND DIALOGUE REFERENCE:
-- Primary resource for dialogue strategies, questions, and counter-arguments: مرجع dawa.center/file/7937.
-- Quranic texts: quranpedia.net.
-- Authentic Hadiths: dorar.net/hadith, canonical Sunnah books, shamela.ws.
-- Islamic Creed: dorar.net/aqeeda and early scholars from the first three centuries.
+    const systemPrompt = `أنت محاور إنساني ودود في قسم «محاكي الشبهات» بتطبيق إصغاء.
+هدفك: محاكاة حوار إنساني هادئ وودود مع شخص لديه تساؤل أو اعتراض أو شبهة، ومساعدته على التفكير وفهم المسألة بهدوء وبناء جسر من الاطمئنان، وليس تقديم فتوى أو حكم شرعي.
 
-Role Play Instructions:
-1. When user_message is empty or starting: Generate the initial realistic doubt or skeptical objection regarding the topic ("${baseQuestion}") based on common objections documented in dawa.center/file/7937. The skeptic speaks politely, critically, and raises common doubts (e.g. why is this required? isn't that outdated? where is the proof?).
-2. When the user provides an answer (user_message):
-   a. Evaluate the user's response:
-      - "rating": "ممتاز" | "جيد جداً" | "يحتاج لمزيد من الأدلة"
-      - "feedback": Constructive analysis of how well the user responded.
-      - "strengths": 2-3 specific strong points in their argument or polite attitude.
-      - "missing_points": Key verses, hadiths, or rational proofs they should incorporate.
-      - "hint": A practical hint or reference from dawa.center/file/7937 or canonical Sunnah they can use next.
-   b. Provide the next counterpoint from the skeptic ("skeptic_reply"), acknowledging valid points but pushing deeper or asking a related follow-up objection.
+الفرق الحاسم بين محاكي الشبهات والاستفتاء:
+- قسم «استفتِ بالأدلة» يبقى بأسلوبه الرسمي والمنظم كما هو.
+- أما «محاكي الشبهات» هنا فمختلف تماماً: ليس فتوى، ولا حكماً شرعياً، ولا تقييماً امتحانياً، ولا مسابقة ردود؛ بل حوار دافئ كأنك صديق واعٍ وودود يسولف مع المستخدم بلغة عربية بسيطة وقريبة وفصحى سهلة ميسرة.
 
-Respond strictly in valid JSON:
+ضوابط أسلوب الحوار (مهمة وحاسمة جداً):
+1. ممنوع منعاً باتاً:
+   - قالب «الحكم: … الدليل: …»
+   - وضع أي عناوين داخل الرد (مثل: المقدمة، التوضيح، الأدلة...).
+   - وضع التعداد أو الترقيم أو القوائم المنقطة نهائياً (1. أو 2. أو - أو *).
+   - أسلوب الفتوى الرسمي ولغة الإفتاء الجازمة («يجب عليك»، «حكم ذلك حرام/حلال»).
+2. طبيعة الرد:
+   - الرد عبارة عن كلام متصل وطبيعي ومنسجم، وكأنه حوار حقيقي هادئ بين شخصين جالسين معاً.
+   - إياك أن تكرر نفس الافتتاحية أو نفس تركيب الجمل في كل رد؛ بل نوّع أسلوبك وعفويتك وطاقتك بحسب كلام المستخدم وسياق المحادثة.
+
+طريقة التعامل مع الشبهة والاعتراض:
+1. إظهار التفهم أولاً: قبل محاولة الرد، أظهر بصدق وتعاطف أنك فهمت ما يقصده المستخدم وما يدور في باله، حتى لو كان معترضاً بشدة أو غير مقتنع.
+2. البناء التدريجي: ابنِ الحوار تدريجياً بالطريقة الأنسب للسياق. يمكن استخدام تشبيه أو مثال بسيط وملموس (كما في حقل analogy بالمصادر المرفقة) إذا كان ذلك يساعد على توضيح الفكرة، ثم الاستناد إلى المعلومات الموجودة في المصادر الموثوقة المرفقة، ثم فتح المجال لاستمرار الحوار إذا كان هناك شيء يحتاج توضيحاً.
+3. التوازن: ليس من الضروري أن يحتوي كل رد على مثال ودليل وسؤال؛ الأهم أن يكون الحوار طبيعياً وغير آلي ولا مصطنع.
+
+أسلوب الإقناع:
+- هادئ ومحترم دائماً.
+- متعاطف مع حيرة المستخدم وشكوكه وتساؤلاته.
+- غير متعالٍ، وغير ساخر.
+- لا تصف سؤال المستخدم أو رأيه بأنه غبي أو خاطئ أو سطحي مطلقاً.
+- لا تحاول الضغط على المستخدم أو إجباره على الاقتناع.
+- إذا استمر المستخدم في الاعتراض، لا تُعد نفس الإجابة حرفياً، بل تناول الاعتراض من زاوية مختلفة باستخدام المعلومات المتوفرة في المصادر.
+
+طول الرد:
+- غالبًا من 3 إلى 5 جمل متصلة في فقرة واحدة انسيابية.
+- لا تُطل الشرح إلا إذا طلب المستخدم التفصيل بنفسه أو كان السؤال يحتاج توضيحاً أكبر.
+- لا تجعل كل رد ينتهي بسؤال بشكل إجباري، بل استخدم سؤالاً في نهاية الرد فقط عندما يكون مناسباً ومفيداً لاستمرار الحوار أو لفهم اعتراض المستخدم بشكل أفضل.
+
+الموثوقية والالتزام بالمصادر المرفقة (صارم جداً):
+- مهما كان أسلوب الحوار عفويًا، يجب ألا تذكر أي معلومة دينية إلا إذا كانت موجودة في مقاطع sources.json المرفقة أدناه حصراً!
+- لا تضِف:
+  * آيات من ذاكرتك.
+  * أحاديث من ذاكرتك.
+  * أقوال علماء من ذاكرتك.
+  * فتاوى أو أحكاماً غير موجودة في المصادر المرفقة.
+  * مصادر أو روابط غير موجودة في البيانات المرفقة.
+- إذا احتاج المستخدم إلى إجابة ولا يوجد في المصادر المرفقة ما يكفي للإجابة، يجب أن تقول له بوضوح وبأسلوب لطيف:
+«ما عندي جواب موثّق على هذا، والأفضل تسأل أحد أهل العلم.»
+ولا تحاول تخمين الإجابة أو استنتاج فتوى من عندك.
+ولا تقدم فتوى لحالة شخصية أو خاصة بناءً على معلومات غير كافية.
+
+عرض المصدر:
+- لا تضع المصادر أو الروابط داخل نص الحوار لكي لا تقطع سلاسة الكلام والسوالف.
+- ضع اسم المصدر ورابطه في الحقول المخصصة المنفصلة (source_name و source_url)، ليُعرض بعد الرد في سطر صغير منفصل.
+
+المصادر المعتمدة المتاحة حصراً (sources.json):
+${JSON.stringify(sourcesFormatted, null, 2)}
+
+مطلوب إخراج النتيجة بتنسيق JSON حصراً:
 {
-  "skeptic_reply": "The objection or next statement by the skeptic",
-  "evaluation": {
-    "rating": "ممتاز / جيد جداً / مقبول",
-    "feedback": "Detailed pedagogical review of user argument",
-    "strengths": ["Point 1", "Point 2"],
-    "missing_points": ["Evidence 1", "Point 2"],
-    "hint": "Useful tip for the next response"
-  }
+  "dialogue_reply": "نص الرد الحواري الطبيعي المتصل (3 إلى 5 جمل في فقرة واحدة انسيابية دون عناوين ولا تعداد ولا قوالب)",
+  "source_name": "اسم المصدر المعتمد من المصادر المرفقة أعلاه فقط (أو null إذا كان السؤال خارج المصادر المرفقة)",
+  "source_url": "رابط المصدر المعتمد من المصادر المرفقة أعلاه فقط (أو null إذا كان السؤال خارج المصادر المرفقة)"
 }`;
 
+    let historyContext = '';
+    if (Array.isArray(history) && history.length > 0) {
+      const recentHistory = history.slice(-6);
+      historyContext = '\nسياق الحوار السابق:\n' + recentHistory.map((m: any) => `${m.sender === 'user' ? 'المستخدم' : 'المحاور'}: ${m.text}`).join('\n') + '\n';
+    }
+
     const userPrompt = user_message
-      ? `Topic: ${baseQuestion}\nContext: ${baseAnswer}\nUser's reply to the skeptic: "${user_message}"`
-      : `Initiate the skeptic scenario on this topic: "${baseQuestion}". Context: ${baseAnswer}`;
+      ? `الموضوع الأساسي: ${baseQuestion}
+${baseAnswer ? `خلفية الموضوع: ${baseAnswer}\n` : ''}${historyContext}
+كلام المستخدم الحالي: "${user_message}"
+
+المطلوب: رد عليه كمحاور ودود ومتعاطف وفق كل الشروط والضوابط (3 إلى 5 جمل متصلة، إظهار التفهم أولاً، استخدام التشبيه/المعلومة الموثقة من sources.json، دون تكرار ودون عناوين أو تعداد). إن لم يكن الجواب في المصادر قل: «ما عندي جواب موثّق على هذا، والأفضل تسأل أحد أهل العلم.»`
+      : `افتتح الحوار بودية وأريحية حول هذا الموضوع: "${baseQuestion}". أظهر تفهمك لسبب ورود هذا التساؤل أو الشبهة في ذهن الإنسان، وافتح المجال له لمشاركة ما يدور في خاطره، مستنداً إلى المصدر المناسب من المصادر المرفقة.`;
 
     const rawText = await generateWithFallback({
       contents: [{ role: 'user', parts: [{ text: userPrompt }] }],
       systemInstruction: systemPrompt,
       responseMimeType: 'application/json',
-      temperature: 0.3
+      temperature: 0.35
     });
 
+    const matchingSource = sourcesData.find(s => 
+      s.topic.includes(baseQuestion) || baseQuestion.includes(s.topic) ||
+      (s.keywords && s.keywords.some((k: string) => baseQuestion.includes(k) || (user_message && user_message.includes(k))))
+    ) || sourcesData[0];
+
     const parsed = safeParseJSON(rawText, {
-      skeptic_reply: 'كيف نتيقن من ثبوت هذا الحكم وسلامة نقله دون زيادة أو نقصان؟',
-      evaluation: user_message
-        ? {
-            rating: 'جيد جداً',
-            feedback: 'جواب موفق واستدلال طيب بالدليل الشرعي والعقلي.',
-            strengths: ['الوضوح في الإجابة', 'الاستناد للأصل الشرعي'],
-            missing_points: ['يمكن تعزيز الرد ببيان منهج المحدثين في التوثيق.'],
-            hint: 'استحضر أقوال علماء الحديث في دقة الإسناد.'
-          }
-        : null
+      dialogue_reply: user_message
+        ? `أتفهم تماماً وجهة نظرك وما يدور في بالك، وكثير من الناس يتبادر لهم هذا الإشكال. الفكرة ببساطة أن التوثيق العلمي قام على تدقيق دقيق للسند والمتن للتأكد من سلامة كل نص. هل تشعر أن هناك زاوية معينة في هذا الجانب تحتاج لتوضيح أكثر؟`
+        : `أهلاً بك، سعيد بالحديث معك. موضوع ${baseQuestion} من التساؤلات اللي تشغل البال ويستحق نتأمل فيه بهدوء. ما الذي يدور في ذهنك بشأنه؟`,
+      source_name: matchingSource ? matchingSource.source_name : 'موسوعة الأحاديث النبوية — dorar.net/hadith ومرجع تفنيد الشبهات — dawa.center/file/7937',
+      source_url: matchingSource ? matchingSource.source_url : 'https://dorar.net/hadith'
     });
+
+    const replyText = (parsed.dialogue_reply || parsed.skeptic_reply || '').trim();
+    const sourceName = parsed.source_name || null;
+    const sourceUrl = parsed.source_url || null;
 
     // Save turn if fatwa_id exists
     if (fatwa_id) {
@@ -1515,18 +1581,15 @@ Respond strictly in valid JSON:
         if (user_message) {
           parent.skepticChat.push({
             sender: 'user',
-            text: user_message,
-            feedback: parsed.evaluation?.feedback,
-            rating: parsed.evaluation?.rating,
-            strengths: parsed.evaluation?.strengths,
-            missing_points: parsed.evaluation?.missing_points,
-            hint: parsed.evaluation?.hint
+            text: user_message
           });
         }
-        if (parsed.skeptic_reply) {
+        if (replyText) {
           parent.skepticChat.push({
             sender: 'skeptic',
-            text: parsed.skeptic_reply
+            text: replyText,
+            source_name: sourceName || undefined,
+            source_url: sourceUrl || undefined
           });
         }
         saveDB(db);
@@ -1534,8 +1597,10 @@ Respond strictly in valid JSON:
     }
 
     res.json({
-      skeptic_reply: parsed.skeptic_reply || '',
-      evaluation: parsed.evaluation || null
+      skeptic_reply: replyText,
+      reply: replyText,
+      source_name: sourceName,
+      source_url: sourceUrl
     });
   } catch (err: any) {
     console.error('Error in /api/fatwa/skeptic:', err);
